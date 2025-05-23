@@ -22,6 +22,8 @@ import meteordevelopment.orbit.EventPriority;
 import net.minecraft.network.ClientConnection;
 import net.minecraft.network.packet.Packet;
 import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
@@ -47,8 +49,36 @@ public class PingSpoof extends Module {
         .build()
     );
 
+    private final Setting<Boolean> dynamicDelay = sgGeneral.add(new BoolSetting.Builder()
+        .name("dynamic-delay")
+        .description("Adjust delay based on distance to other players.")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Integer> maxDelay = sgGeneral.add(new IntSetting.Builder()
+        .name("max-delay")
+        .description("Maximum delay when players are close.")
+        .defaultValue(600)
+        .min(0)
+        .sliderRange(0, 2000)
+        .visible(dynamicDelay::get)
+        .build()
+    );
+
+    private final Setting<Integer> playerRange = sgGeneral.add(new IntSetting.Builder()
+        .name("player-range")
+        .description("Range to other players for applying max delay.")
+        .defaultValue(6)
+        .min(1)
+        .sliderRange(1, 20)
+        .visible(dynamicDelay::get)
+        .build()
+    );
+
     private final Queue<DelayedPacket> queue = new ConcurrentLinkedQueue<>();
     private Vec3d serverPos = Vec3d.ZERO;
+    private int currentDelay;
 
     public PingSpoof() {
         super(Categories.Misc, "ping-spoof", "Simulates network latency by delaying packets.");
@@ -57,6 +87,7 @@ public class PingSpoof extends Module {
     @Override
     public void onActivate() {
         if (mc.player != null) serverPos = mc.player.getPos();
+        currentDelay = delay.get();
     }
 
     @Override
@@ -67,12 +98,13 @@ public class PingSpoof extends Module {
     @EventHandler(priority = EventPriority.HIGHEST + 50)
     private void onSendPacket(PacketEvent.Send event) {
         if (!Utils.canUpdate()) return;
-        queue.add(new DelayedPacket(event.packet, event.connection, System.currentTimeMillis() + delay.get()));
+        queue.add(new DelayedPacket(event.packet, event.connection, System.currentTimeMillis() + currentDelay));
         event.cancel();
     }
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
+        updateDelay();
         long now = System.currentTimeMillis();
         while (true) {
             DelayedPacket p = queue.peek();
@@ -93,6 +125,32 @@ public class PingSpoof extends Module {
         while ((p = queue.poll()) != null) {
             p.connection.send(p.packet, null, true);
         }
+    }
+
+    private void updateDelay() {
+        currentDelay = delay.get();
+        if (!dynamicDelay.get() || mc.world == null || mc.player == null) return;
+
+        double closest = Double.MAX_VALUE;
+        for (PlayerEntity player : mc.world.getPlayers()) {
+            if (player == mc.player) continue;
+            double d = player.squaredDistanceTo(mc.player);
+            if (d < closest) closest = d;
+        }
+
+        if (closest == Double.MAX_VALUE) {
+            flushQueue();
+            return;
+        }
+
+        double dist = Math.sqrt(closest);
+        if (dist > playerRange.get()) {
+            flushQueue();
+            return;
+        }
+
+        float t = (float) (dist / playerRange.get());
+        currentDelay = (int) MathHelper.lerp(t, maxDelay.get(), delay.get());
     }
 
     @EventHandler
