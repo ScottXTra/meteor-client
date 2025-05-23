@@ -5,6 +5,7 @@
 
 package meteordevelopment.meteorclient.systems.modules.misc;
 
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
@@ -49,42 +50,78 @@ public class PingSpoof extends Module {
 
     private final Queue<DelayedPacket> queue = new ConcurrentLinkedQueue<>();
     private Vec3d serverPos = Vec3d.ZERO;
+    private boolean catchingUp = false;
+    private boolean subscribed = false;
 
     public PingSpoof() {
         super(Categories.Misc, "ping-spoof", "Simulates network latency by delaying packets.");
+        autoSubscribe = false;
     }
 
     @Override
     public void onActivate() {
+        if (!subscribed) {
+            MeteorClient.EVENT_BUS.subscribe(this);
+            subscribed = true;
+        }
+        catchingUp = false;
         if (mc.player != null) serverPos = mc.player.getPos();
     }
 
     @Override
     public void onDeactivate() {
-        flushQueue();
+        catchingUp = !queue.isEmpty();
+        if (!catchingUp && subscribed) {
+            MeteorClient.EVENT_BUS.unsubscribe(this);
+            subscribed = false;
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST + 50)
     private void onSendPacket(PacketEvent.Send event) {
-        if (!Utils.canUpdate()) return;
+        if (!Utils.canUpdate() || !isActive()) return;
         queue.add(new DelayedPacket(event.packet, event.connection, System.currentTimeMillis() + delay.get()));
         event.cancel();
     }
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
+        if (!isActive() && !catchingUp) return;
+
         long now = System.currentTimeMillis();
-        while (true) {
-            DelayedPacket p = queue.peek();
-            if (p == null || p.time > now) break;
-            queue.poll();
-            if (p.packet instanceof PlayerMoveC2SPacket move) {
-                double x = move.getX(serverPos.x);
-                double y = move.getY(serverPos.y);
-                double z = move.getZ(serverPos.z);
-                serverPos = new Vec3d(x, y, z);
+        if (isActive()) {
+            while (true) {
+                DelayedPacket p = queue.peek();
+                if (p == null || p.time > now) break;
+                queue.poll();
+                if (p.packet instanceof PlayerMoveC2SPacket move) {
+                    double x = move.getX(serverPos.x);
+                    double y = move.getY(serverPos.y);
+                    double z = move.getZ(serverPos.z);
+                    serverPos = new Vec3d(x, y, z);
+                }
+                p.connection.send(p.packet, null, true);
             }
-            p.connection.send(p.packet, null, true);
+        } else {
+            int toSend = (int) Math.ceil(Math.log(queue.size() + 1));
+            for (int i = 0; i < toSend; i++) {
+                DelayedPacket p = queue.poll();
+                if (p == null) break;
+                if (p.packet instanceof PlayerMoveC2SPacket move) {
+                    double x = move.getX(serverPos.x);
+                    double y = move.getY(serverPos.y);
+                    double z = move.getZ(serverPos.z);
+                    serverPos = new Vec3d(x, y, z);
+                }
+                p.connection.send(p.packet, null, true);
+            }
+            if (queue.isEmpty()) {
+                catchingUp = false;
+                if (subscribed) {
+                    MeteorClient.EVENT_BUS.unsubscribe(this);
+                    subscribed = false;
+                }
+            }
         }
     }
 
