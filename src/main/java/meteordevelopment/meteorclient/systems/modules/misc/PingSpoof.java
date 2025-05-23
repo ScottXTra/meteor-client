@@ -47,8 +47,18 @@ public class PingSpoof extends Module {
         .build()
     );
 
+    private final Setting<Integer> dropPercent = sgGeneral.add(new IntSetting.Builder()
+        .name("drop-percent")
+        .description("Percentage of packets to drop.")
+        .defaultValue(0)
+        .range(0, 100)
+        .sliderRange(0, 100)
+        .build()
+    );
+
     private final Queue<DelayedPacket> queue = new ConcurrentLinkedQueue<>();
     private Vec3d serverPos = Vec3d.ZERO;
+    private double dropAccumulator = 0;
 
     public PingSpoof() {
         super(Categories.Misc, "ping-spoof", "Simulates network latency by delaying packets.");
@@ -57,11 +67,13 @@ public class PingSpoof extends Module {
     @Override
     public void onActivate() {
         if (mc.player != null) serverPos = mc.player.getPos();
+        dropAccumulator = 0;
     }
 
     @Override
     public void onDeactivate() {
         flushQueue();
+        dropAccumulator = 0;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST + 50)
@@ -78,6 +90,11 @@ public class PingSpoof extends Module {
             DelayedPacket p = queue.peek();
             if (p == null || p.time > now) break;
             queue.poll();
+            dropAccumulator += dropPercent.get() / 100.0;
+            if (dropAccumulator >= 1.0) {
+                dropAccumulator -= 1.0;
+                continue;
+            }
             if (p.packet instanceof PlayerMoveC2SPacket move) {
                 double x = move.getX(serverPos.x);
                 double y = move.getY(serverPos.y);
