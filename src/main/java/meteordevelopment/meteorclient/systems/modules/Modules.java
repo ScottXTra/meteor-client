@@ -479,6 +479,7 @@ public class Modules extends System<Modules> {
         add(new Spider());
         add(new Sprint());
         add(new Step());
+        add(new ArrowTeleport());
         add(new TridentBoost());
         add(new Velocity());
     }
