@@ -400,6 +400,7 @@ public class Modules extends System<Modules> {
         add(new AutoWeb());
         add(new BedAura());
         add(new BowAimbot());
+        add(new LeadBowAimbot());
         add(new BowSpam());
         add(new Burrow());
         add(new Criticals());
