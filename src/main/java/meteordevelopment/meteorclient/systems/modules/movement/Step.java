@@ -12,10 +12,19 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.entity.DamageUtils;
+import meteordevelopment.meteorclient.utils.player.FindItemResult;
+import meteordevelopment.meteorclient.utils.player.InvUtils;
+import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.decoration.EndCrystalEntity;
+import net.minecraft.entity.vehicle.AbstractBoatEntity;
+import net.minecraft.item.BoatItem;
+import net.minecraft.util.Hand;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.Vec3d;
 
 import java.util.OptionalDouble;
 
@@ -54,8 +63,17 @@ public class Step extends Module {
         .build()
     );
 
+    private final Setting<Boolean> boatStep = sgGeneral.add(new BoolSetting.Builder()
+        .name("boat-step")
+        .description("Places a boat before stepping and breaks it afterwards.")
+        .defaultValue(false)
+        .build()
+    );
+
     private float prevStepHeight;
     private boolean prevPathManagerStep;
+    private AbstractBoatEntity placedBoat;
+    private double lastY;
 
     public Step() {
         super(Categories.Movement, "step", "Allows you to walk up full blocks instantly.");
@@ -65,6 +83,9 @@ public class Step extends Module {
     public void onActivate() {
         prevStepHeight = mc.player.getStepHeight();
 
+        placedBoat = null;
+        lastY = mc.player.getY();
+
         prevPathManagerStep = PathManagers.get().getSettings().getStep().get();
         PathManagers.get().getSettings().getStep().set(true);
     }
@@ -72,6 +93,25 @@ public class Step extends Module {
     @EventHandler
     private void onTick(TickEvent.Post event) {
         boolean work = (activeWhen.get() == ActiveWhen.Always) || (activeWhen.get() == ActiveWhen.Sneaking && mc.player.isSneaking()) || (activeWhen.get() == ActiveWhen.NotSneaking && !mc.player.isSneaking());
+
+        if (boatStep.get()) {
+            if (placedBoat != null) {
+                if (mc.player.getY() > lastY + 0.1) {
+                    mc.interactionManager.attackEntity(mc.player, placedBoat);
+                    mc.player.swingHand(Hand.MAIN_HAND);
+                    placedBoat = null;
+                }
+            } else if (mc.player.horizontalCollision && mc.player.isOnGround() && work) {
+                BlockPos pos = mc.player.getBlockPos().offset(Direction.fromRotation(mc.player.getYaw()));
+                FindItemResult boat = InvUtils.findInHotbar(item -> item instanceof BoatItem);
+                if (boat.found()) {
+                    if (BlockUtils.place(pos, boat, true, 50)) {
+                        placedBoat = findBoatAt(pos);
+                    }
+                }
+            }
+        }
+
         mc.player.setBoundingBox(mc.player.getBoundingBox().offset(0, 1, 0));
         if (work && (!safeStep.get() || (getHealth() > stepHealth.get() && getHealth() - getExplosionDamage() > stepHealth.get()))){
             mc.player.getAttributeInstance(EntityAttributes.STEP_HEIGHT).setBaseValue(height.get());
@@ -79,11 +119,19 @@ public class Step extends Module {
             mc.player.getAttributeInstance(EntityAttributes.STEP_HEIGHT).setBaseValue(prevStepHeight);
         }
         mc.player.setBoundingBox(mc.player.getBoundingBox().offset(0, -1, 0));
+
+        lastY = mc.player.getY();
     }
 
     @Override
     public void onDeactivate() {
         mc.player.getAttributeInstance(EntityAttributes.STEP_HEIGHT).setBaseValue(prevStepHeight);
+
+        if (placedBoat != null) {
+            mc.interactionManager.attackEntity(mc.player, placedBoat);
+            mc.player.swingHand(Hand.MAIN_HAND);
+            placedBoat = null;
+        }
 
         PathManagers.get().getSettings().getStep().set(prevPathManagerStep);
     }
@@ -99,6 +147,21 @@ public class Step extends Module {
                 .mapToDouble(entity -> DamageUtils.crystalDamage(mc.player, entity.getPos()))
                 .max();
         return crystalDamage.orElse(0.0);
+    }
+
+    private AbstractBoatEntity findBoatAt(BlockPos pos) {
+        AbstractBoatEntity best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (Entity entity : mc.world.getEntities()) {
+            if (entity instanceof AbstractBoatEntity boat) {
+                double d = boat.squaredDistanceTo(Vec3d.ofCenter(pos));
+                if (d < bestDistance) {
+                    bestDistance = d;
+                    best = boat;
+                }
+            }
+        }
+        return best;
     }
 
     public enum ActiveWhen {
