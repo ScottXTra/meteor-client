@@ -167,7 +167,8 @@ public class ModulesScreen extends TabScreen {
         List<Module> modules = new ArrayList<>();
 
         for (Module module : Modules.get().getAll()) {
-            if (module.favorite) {
+            if (module.favorite
+                && !Config.get().blacklistedModules.get().contains(module)) {
                 modules.add(module);
             }
         }
@@ -205,7 +206,8 @@ public class ModulesScreen extends TabScreen {
             List<Module> moduleList = new ArrayList<>();
             for (Category category : Modules.loopCategories()) {
                 for (Module module : Modules.get().getGroup(category)) {
-                    if (!Config.get().hiddenModules.get().contains(module)) {
+                    if (!Config.get().hiddenModules.get().contains(module)
+                        && !Config.get().blacklistedModules.get().contains(module)) {
                         moduleList.add(module);
                     }
                 }

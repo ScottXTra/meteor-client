@@ -9,6 +9,7 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.hud.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.systems.config.Config;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 
@@ -202,7 +203,8 @@ public class ActiveModulesHud extends HudElement {
         modules.clear();
 
         for (Module module : Modules.get().getActive()) {
-            if (!hiddenModules.get().contains(module)) modules.add(module);
+            if (!hiddenModules.get().contains(module)
+                && !Config.get().blacklistedModules.get().contains(module)) modules.add(module);
         }
 
         if (modules.isEmpty()) {

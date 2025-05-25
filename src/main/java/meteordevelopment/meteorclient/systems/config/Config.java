@@ -12,6 +12,15 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.System;
 import meteordevelopment.meteorclient.systems.Systems;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.combat.*;
+import meteordevelopment.meteorclient.systems.modules.player.*;
+import meteordevelopment.meteorclient.systems.modules.movement.*;
+import meteordevelopment.meteorclient.systems.modules.movement.elytrafly.ElytraFly;
+import meteordevelopment.meteorclient.systems.modules.movement.speed.Speed;
+import meteordevelopment.meteorclient.systems.modules.render.*;
+import meteordevelopment.meteorclient.systems.modules.world.*;
+import meteordevelopment.meteorclient.systems.modules.misc.*;
+import meteordevelopment.meteorclient.systems.modules.misc.swarm.Swarm;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
@@ -101,6 +110,47 @@ public class Config extends System<Config> {
     public final Setting<List<Module>> hiddenModules = sgModules.add(new ModuleListSetting.Builder()
         .name("hidden-modules")
         .description("Prevent these modules from being rendered as options in the clickgui.")
+        .build()
+    );
+
+    public final Setting<List<Module>> blacklistedModules = sgModules.add(new ModuleListSetting.Builder()
+        .name("blacklisted-modules")
+        .description("Modules that will not be shown in the clickgui or HUD.")
+        .defaultValue(
+            AnchorAura.class, AntiAnvil.class, AntiBed.class, AutoAnvil.class,
+            AutoArmor.class, AutoCity.class, AutoEXP.class, AutoTrap.class,
+            AutoWeb.class, BedAura.class, BowAimbot.class, BowSpam.class,
+            Burrow.class, CrystalAura.class, Hitboxes.class, HoleFiller.class,
+            Quiver.class, SelfAnvil.class, SelfTrap.class, SelfWeb.class,
+            Surround.class,
+
+            AntiHunger.class, AutoEat.class, AutoClicker.class, AutoFish.class,
+            AutoGap.class, AutoMend.class, AutoReplenish.class, BreakDelay.class,
+            ChestSwap.class, EXPThrower.class, FakePlayer.class, FastUse.class,
+            GhostHand.class, InstantRebreak.class, LiquidInteract.class,
+            MiddleClickExtra.class, NoInteract.class, Portals.class,
+            PotionSaver.class, Reach.class, Rotation.class, SpeedMine.class,
+
+            AirJump.class, Anchor.class, AntiAFK.class, AntiVoid.class,
+            AutoJump.class, AutoWalk.class, AutoWasp.class, Blink.class,
+            BoatFly.class, ClickTP.class, ElytraBoost.class, ElytraFly.class,
+            EntityControl.class, EntitySpeed.class, FastClimb.class, Flight.class,
+            GUIMove.class, HighJump.class, Jesus.class, LongJump.class,
+            NoFall.class, NoSlow.class, Parkour.class, ReverseStep.class,
+            Slippy.class, Speed.class, Spider.class, Step.class,
+            TridentBoost.class, Velocity.class,
+
+            Tracers.class,
+
+            AutoBreed.class, AutoBrewer.class, AutoMount.class, AutoNametag.class,
+            AutoShearer.class, AutoSign.class, AutoSmelter.class, BuildHeight.class,
+            Collisions.class, EChestFarmer.class, HighwayBuilder.class,
+            LiquidFiller.class, MountBypass.class, NoGhostBlocks.class,
+            PacketMine.class, SpawnProofer.class, VeinMiner.class,
+
+            BetterBeacons.class, BetterChat.class, DiscordPresence.class,
+            MessageAura.class, NameProtect.class, Notebot.class, Swarm.class
+        )
         .build()
     );
 
