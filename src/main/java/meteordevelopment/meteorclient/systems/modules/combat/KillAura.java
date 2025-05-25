@@ -23,6 +23,10 @@ import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.meteorclient.utils.world.TickRate;
 import meteordevelopment.orbit.EventHandler;
+import meteordevelopment.orbit.EventPriority;
+import meteordevelopment.meteorclient.events.entity.player.PlayerMoveEvent;
+import meteordevelopment.meteorclient.mixininterface.IVec3d;
+import net.minecraft.entity.MovementType;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LivingEntity;
@@ -101,6 +105,13 @@ public class KillAura extends Module {
     private final Setting<Boolean> pauseOnCombat = sgGeneral.add(new BoolSetting.Builder()
         .name("pause-baritone")
         .description("Freezes Baritone temporarily until you are finished attacking the entity.")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Boolean> movementCorrection = sgGeneral.add(new BoolSetting.Builder()
+        .name("movement-correction")
+        .description("Corrects your movement when spoofing rotations.")
         .defaultValue(true)
         .build()
     );
@@ -351,6 +362,25 @@ public class KillAura extends Module {
         if (event.packet instanceof UpdateSelectedSlotC2SPacket) {
             switchTimer = switchDelay.get();
         }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    private void onPlayerMove(PlayerMoveEvent event) {
+        if (!movementCorrection.get()) return;
+        if (event.type != MovementType.SELF) return;
+        if (!attacking) return;
+
+        float deltaYaw = mc.player.getYaw() - Rotations.serverYaw;
+        if (Math.abs(deltaYaw) < 1e-3) return;
+
+        double rad = Math.toRadians(deltaYaw);
+        double x = event.movement.x;
+        double z = event.movement.z;
+
+        double cos = Math.cos(rad);
+        double sin = Math.sin(rad);
+
+        ((IVec3d) event.movement).meteor$setXZ(x * cos - z * sin, z * cos + x * sin);
     }
 
     private void stopAttacking() {
