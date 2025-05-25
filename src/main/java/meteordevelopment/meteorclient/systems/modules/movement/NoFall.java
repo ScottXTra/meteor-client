@@ -12,6 +12,7 @@ import meteordevelopment.meteorclient.mixininterface.IPlayerMoveC2SPacket;
 import meteordevelopment.meteorclient.mixininterface.IVec3d;
 import meteordevelopment.meteorclient.pathing.PathManagers;
 import meteordevelopment.meteorclient.settings.BoolSetting;
+import meteordevelopment.meteorclient.settings.DoubleSetting;
 import meteordevelopment.meteorclient.settings.EnumSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
@@ -19,10 +20,12 @@ import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.entity.EntityUtils;
+import meteordevelopment.meteorclient.utils.entity.DamageUtils;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.meteorclient.utils.player.Rotations;
+import meteordevelopment.meteorclient.utils.player.SlotUtils;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
@@ -88,10 +91,31 @@ public class NoFall extends Module {
         .build()
     );
 
+    private final Setting<Boolean> inventoryBucket = sgGeneral.add(new BoolSetting.Builder()
+        .name("inventory-bucket")
+        .description("Uses a water bucket from your inventory if fall damage is high enough.")
+        .defaultValue(false)
+        .visible(() -> mode.get() == Mode.Place && placedItem.get() == PlacedItem.Bucket)
+        .build()
+    );
+
+    private final Setting<Double> damageThreshold = sgGeneral.add(new DoubleSetting.Builder()
+        .name("damage-threshold")
+        .description("Minimum predicted fall damage before using the inventory bucket.")
+        .defaultValue(6)
+        .min(0)
+        .sliderRange(0, 40)
+        .visible(inventoryBucket::get)
+        .build()
+    );
+
     private boolean placedWater;
     private BlockPos targetPos;
     private int timer;
     private boolean prePathManagerNoFall;
+    private boolean invSwap;
+    private int invSwapSlot;
+    private int invSwapSelected;
 
     public NoFall() {
         super(Categories.Movement, "no-fall", "Attempts to prevent you from taking fall damage.");
@@ -103,11 +127,13 @@ public class NoFall extends Module {
         if (mode.get() == Mode.Packet) PathManagers.get().getSettings().getNoFall().set(true);
 
         placedWater = false;
+        invSwap = false;
     }
 
     @Override
     public void onDeactivate() {
         PathManagers.get().getSettings().getNoFall().set(prePathManagerNoFall);
+        invSwap = false;
     }
 
     @EventHandler
@@ -162,21 +188,19 @@ public class NoFall extends Module {
             if (mc.player.fallDistance > 3 && !EntityUtils.isAboveWater(mc.player)) {
                 Item item = placedItem1.item;
 
-                // Place
-                FindItemResult findItemResult = InvUtils.findInHotbar(item);
+                FindItemResult findItemResult = inventoryBucket.get() && placedItem1 == PlacedItem.Bucket ? InvUtils.find(item) : InvUtils.findInHotbar(item);
                 if (!findItemResult.found()) return;
 
-                // Center player
+                if (inventoryBucket.get() && placedItem1 == PlacedItem.Bucket && DamageUtils.fallDamage(mc.player) < damageThreshold.get()) return;
+
                 if (anchor.get()) PlayerUtils.centerPlayer();
 
-                // Check if there is a block within 5 blocks
                 BlockHitResult result = mc.world.raycast(new RaycastContext(mc.player.getPos(), mc.player.getPos().subtract(0, 5, 0), RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, mc.player));
 
-                // Place
                 if (result != null && result.getType() == HitResult.Type.BLOCK) {
                     targetPos = result.getBlockPos().up();
                     if (placedItem1 == PlacedItem.Bucket)
-                        useItem(findItemResult, true, targetPos, true);
+                        useItemSmart(findItemResult, true, targetPos, true);
                     else {
                         useItem(findItemResult, placedItem1 == PlacedItem.PowderSnow, targetPos, false);
                     }
@@ -187,8 +211,9 @@ public class NoFall extends Module {
             if (placedWater) {
                 timer++;
                 if (mc.player.getBlockStateAtPos().getBlock() == placedItem1.block) {
-                    useItem(InvUtils.findInHotbar(Items.BUCKET), false, targetPos, true);
-                } else if (mc.world.getBlockState(mc.player.getBlockPos().down()).getBlock() == Blocks.POWDER_SNOW && mc.player.fallDistance==0 && placedItem1.block==Blocks.POWDER_SNOW){ //check if the powder snow block is still there and the player is on the ground
+                    if (inventoryBucket.get() && placedItem1 == PlacedItem.Bucket) pickUpSmart(targetPos);
+                    else useItem(InvUtils.findInHotbar(Items.BUCKET), false, targetPos, true);
+                } else if (mc.world.getBlockState(mc.player.getBlockPos().down()).getBlock() == Blocks.POWDER_SNOW && mc.player.fallDistance==0 && placedItem1.block==Blocks.POWDER_SNOW){
                     useItem(InvUtils.findInHotbar(Items.BUCKET), false, targetPos.down(), true);
                 }
             }
@@ -217,6 +242,46 @@ public class NoFall extends Module {
         }
 
         this.placedWater = placedWater;
+    }
+
+    private void useItemSmart(FindItemResult item, boolean placedWater, BlockPos blockPos, boolean interactItem) {
+        if (!item.found()) return;
+
+        if (interactItem) {
+            Rotations.rotate(Rotations.getYaw(blockPos), Rotations.getPitch(blockPos), 10, true, () -> {
+                if (item.isOffhand()) {
+                    mc.interactionManager.interactItem(mc.player, Hand.OFF_HAND);
+                } else if (item.isHotbar()) {
+                    InvUtils.swap(item.slot(), true);
+                    mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+                    InvUtils.swapBack();
+                } else {
+                    invSwapSelected = mc.player.getInventory().getSelectedSlot();
+                    invSwapSlot = item.slot();
+                    InvUtils.quickSwap().fromId(SlotUtils.indexToId(invSwapSelected)).to(invSwapSlot);
+                    mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+                    invSwap = true;
+                }
+            });
+        } else {
+            BlockUtils.place(blockPos, item, true, 10, true);
+        }
+
+        this.placedWater = placedWater;
+    }
+
+    private void pickUpSmart(BlockPos blockPos) {
+        Rotations.rotate(Rotations.getYaw(blockPos), Rotations.getPitch(blockPos), 10, true, () -> {
+            mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+            if (invSwap) {
+                InvUtils.quickSwap().fromId(SlotUtils.indexToId(invSwapSelected)).to(invSwapSlot);
+                invSwap = false;
+            } else {
+                InvUtils.swapBack();
+            }
+        });
+
+        placedWater = false;
     }
 
     @Override
