@@ -444,6 +444,7 @@ public class Modules extends System<Modules> {
         add(new Reach());
         add(new Rotation());
         add(new SpeedMine());
+        add(new PlayerLogger());
     }
 
     private void initMovement() {
