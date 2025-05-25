@@ -15,10 +15,12 @@ import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.EnumSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
+import meteordevelopment.meteorclient.settings.DoubleSetting;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.entity.EntityUtils;
+import meteordevelopment.meteorclient.utils.entity.DamageUtils;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
@@ -88,10 +90,31 @@ public class NoFall extends Module {
         .build()
     );
 
+    private final Setting<Boolean> autoBucket = sgGeneral.add(new BoolSetting.Builder()
+        .name("water-bucket-mlg")
+        .description("Automatically water bucket if predicted fall damage is high.")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Double> autoBucketDamage = sgGeneral.add(new DoubleSetting.Builder()
+        .name("mlg-damage")
+        .description("Minimum predicted fall damage to trigger the water bucket.")
+        .defaultValue(10.0)
+        .min(0)
+        .sliderMax(40)
+        .visible(autoBucket::get)
+        .build()
+    );
+
     private boolean placedWater;
     private BlockPos targetPos;
     private int timer;
     private boolean prePathManagerNoFall;
+    private boolean bucketMLG;
+    private boolean bucketMoved;
+    private int bucketOrigSlot = -1;
+    private int bucketHotbarSlot = -1;
 
     public NoFall() {
         super(Categories.Movement, "no-fall", "Attempts to prevent you from taking fall damage.");
@@ -103,11 +126,19 @@ public class NoFall extends Module {
         if (mode.get() == Mode.Packet) PathManagers.get().getSettings().getNoFall().set(true);
 
         placedWater = false;
+        bucketMLG = false;
+        bucketMoved = false;
+        bucketOrigSlot = -1;
+        bucketHotbarSlot = -1;
     }
 
     @Override
     public void onDeactivate() {
         PathManagers.get().getSettings().getNoFall().set(prePathManagerNoFall);
+        bucketMLG = false;
+        bucketMoved = false;
+        bucketOrigSlot = -1;
+        bucketHotbarSlot = -1;
     }
 
     @EventHandler
@@ -128,6 +159,25 @@ public class NoFall extends Module {
         }
     }
 
+    private void handleAutoBucket() {
+        FindItemResult bucket = InvUtils.find(Items.WATER_BUCKET);
+        if (!bucket.found()) return;
+
+        BlockHitResult result = mc.world.raycast(new RaycastContext(mc.player.getPos(), mc.player.getPos().subtract(0, 5, 0), RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, mc.player));
+        if (result == null || result.getType() != HitResult.Type.BLOCK) return;
+
+        targetPos = result.getBlockPos().up();
+
+        bucketOrigSlot = bucket.slot();
+        bucketHotbarSlot = bucket.isHotbar() ? bucket.slot() : mc.player.getInventory().getSelectedSlot();
+        bucketMoved = !bucket.isHotbar();
+        if (bucketMoved) InvUtils.move().from(bucketOrigSlot).toHotbar(bucketHotbarSlot);
+
+        if (anchor.get()) PlayerUtils.centerPlayer();
+        useItem(new FindItemResult(bucketHotbarSlot, 1), true, targetPos, true);
+        bucketMLG = true;
+    }
+
     @EventHandler
     private void onTick(TickEvent.Pre event) {
         if (timer > 20) {
@@ -137,6 +187,15 @@ public class NoFall extends Module {
 
         if (mc.player.getAbilities().creativeMode) return;
         if (pauseOnMace.get() && mc.player.getMainHandStack().getItem() instanceof MaceItem) return;
+
+        // Automatic water bucket MLG
+        if (autoBucket.get() && mc.player.fallDistance > 3 && !EntityUtils.isAboveWater(mc.player)) {
+            float dmg = DamageUtils.fallDamage(mc.player);
+            if (dmg > autoBucketDamage.get()) {
+                handleAutoBucket();
+                return;
+            }
+        }
 
         // Airplace mode
         if (mode.get() == Mode.AirPlace) {
@@ -187,7 +246,15 @@ public class NoFall extends Module {
             if (placedWater) {
                 timer++;
                 if (mc.player.getBlockStateAtPos().getBlock() == placedItem1.block) {
-                    useItem(InvUtils.findInHotbar(Items.BUCKET), false, targetPos, true);
+                    FindItemResult bucket = new FindItemResult(bucketHotbarSlot == -1 ? InvUtils.findInHotbar(Items.BUCKET).slot() : bucketHotbarSlot, 1);
+                    useItem(bucket, false, targetPos, true);
+                    if (bucketMLG) {
+                        if (bucketMoved) InvUtils.move().from(bucketHotbarSlot).to(bucketOrigSlot);
+                        bucketMLG = false;
+                        bucketMoved = false;
+                        bucketOrigSlot = -1;
+                        bucketHotbarSlot = -1;
+                    }
                 } else if (mc.world.getBlockState(mc.player.getBlockPos().down()).getBlock() == Blocks.POWDER_SNOW && mc.player.fallDistance==0 && placedItem1.block==Blocks.POWDER_SNOW){ //check if the powder snow block is still there and the player is on the ground
                     useItem(InvUtils.findInHotbar(Items.BUCKET), false, targetPos.down(), true);
                 }
