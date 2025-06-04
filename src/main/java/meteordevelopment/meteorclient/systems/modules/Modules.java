@@ -521,6 +521,7 @@ public class Modules extends System<Modules> {
         add(new WaypointsModule());
         add(new Xray());
         add(new Zoom());
+        add(new SeedDiff());
     }
 
     private void initWorld() {
