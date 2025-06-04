@@ -9,6 +9,7 @@ import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.StringSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
+import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.Utils;
@@ -40,6 +41,15 @@ public class SeedDiff extends Module {
         .name("seed")
         .description("Seed used for natural terrain generation.")
         .defaultValue("0")
+        .build()
+    );
+
+    private final Setting<Integer> radius = sgGeneral.add(new IntSetting.Builder()
+        .name("radius")
+        .description("Comparison radius around the player.")
+        .defaultValue(10)
+        .min(3)
+        .sliderRange(3, 30)
         .build()
     );
 
@@ -81,9 +91,17 @@ public class SeedDiff extends Module {
 
     @EventHandler
     private void onRender(Render3DEvent event) {
-        diffs.values().forEach(set -> set.forEach(pos ->
-            event.renderer.box(pos, color.get(), color.get(), ShapeMode.Lines, 0)
-        ));
+        BlockPos playerPos = mc.player.getBlockPos();
+        int r = radius.get();
+        int rSq = r * r;
+
+        diffs.values().forEach(set -> set.forEach(pos -> {
+            int dx = pos.getX() - playerPos.getX();
+            int dz = pos.getZ() - playerPos.getZ();
+            if (dx * dx + dz * dz <= rSq) {
+                event.renderer.box(pos, color.get(), color.get(), ShapeMode.Lines, 0);
+            }
+        }));
     }
 
     private void initGenerator() {
@@ -116,14 +134,30 @@ public class SeedDiff extends Module {
         int startZ = pos.getStartZ();
         HeightLimitView view = mc.world;
 
+        BlockPos playerPos = mc.player.getBlockPos();
+        int r = radius.get();
+        int rSq = r * r;
+
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
-                compareColumn(set, chunk, startX + x, startZ + z, view);
+                int worldX = startX + x;
+                int worldZ = startZ + z;
+                int dx = worldX - playerPos.getX();
+                int dz = worldZ - playerPos.getZ();
+                if (dx * dx + dz * dz <= rSq) {
+                    compareColumn(set, chunk, worldX, worldZ, view);
+                }
             }
         }
     }
 
     private void compareBlock(Chunk chunk, BlockPos pos) {
+        BlockPos playerPos = mc.player.getBlockPos();
+        int r = radius.get();
+        int dx = pos.getX() - playerPos.getX();
+        int dz = pos.getZ() - playerPos.getZ();
+        if (dx * dx + dz * dz > r * r) return;
+
         Set<BlockPos> set = diffs.computeIfAbsent(chunk.getPos().toLong(), p -> new HashSet<>());
         compareColumn(set, chunk, pos.getX(), pos.getZ(), mc.world);
     }
