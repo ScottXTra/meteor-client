@@ -399,6 +399,7 @@ public class Modules extends System<Modules> {
         add(new AutoTrap());
         add(new AutoWeapon());
         add(new AutoWeb());
+        add(new BackTrack());
         add(new BedAura());
         add(new BowAimbot());
         add(new BowSpam());
