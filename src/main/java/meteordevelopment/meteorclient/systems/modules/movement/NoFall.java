@@ -5,6 +5,7 @@
 
 package meteordevelopment.meteorclient.systems.modules.movement;
 
+import meteordevelopment.meteorclient.events.entity.player.PlayerMoveEvent;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.mixin.PlayerMoveC2SPacketAccessor;
@@ -67,11 +68,19 @@ public class NoFall extends Module {
         .build()
     );
 
+    private final Setting<VulcanMode> vulcanMode = sgGeneral.add(new EnumSetting.Builder<VulcanMode>()
+        .name("vulcan-mode")
+        .description("How Vulcan mode prevents fall damage.")
+        .defaultValue(VulcanMode.Spoof)
+        .visible(() -> mode.get() == Mode.Vulcan)
+        .build()
+    );
+
     private final Setting<Boolean> anchor = sgGeneral.add(new BoolSetting.Builder()
         .name("anchor")
         .description("Centers the player and reduces movement when using bucket or air place mode.")
         .defaultValue(true)
-        .visible(() -> mode.get() != Mode.Packet)
+        .visible(() -> mode.get() == Mode.AirPlace || mode.get() == Mode.Place)
         .build()
     );
 
@@ -94,6 +103,19 @@ public class NoFall extends Module {
     private int timer;
     private boolean prePathManagerNoFall;
 
+    // Vulcan mode
+    private boolean stopMove;
+    private boolean fixFlag;
+    private int airTicks;
+    private static final double[] vulcanStepCValues = {
+        -0.0784, -0.155232, -0.23052736, -0.3043168128, -0.37663047654399995,
+        -0.44749786701311994, -0.5169479096728575, -0.5850089514794004,
+        -0.6517087724498123, -0.717074597000816, -0.7811331050607996,
+        -0.8439104429595835, -0.9054322341003918, -0.9657235894183839,
+        -1.024809117630016, -1.0827129352774159, -1.1394586765718675,
+        -1.1950695030404301, -1.2495681129796217, -1.3029767507200294
+    };
+
     public NoFall() {
         super(Categories.Movement, "no-fall", "Attempts to prevent you from taking fall damage.");
     }
@@ -104,6 +126,9 @@ public class NoFall extends Module {
         if (mode.get() == Mode.Packet) PathManagers.get().getSettings().getNoFall().set(true);
 
         placedWater = false;
+        stopMove = false;
+        fixFlag = false;
+        airTicks = 0;
     }
 
     @Override
@@ -113,19 +138,49 @@ public class NoFall extends Module {
 
     @EventHandler
     private void onSendPacket(PacketEvent.Send event) {
+        if (!(event.packet instanceof PlayerMoveC2SPacket packet)) return;
         if (pauseOnMace.get() && mc.player.getMainHandStack().getItem() instanceof MaceItem) return;
-        if (mc.player.getAbilities().creativeMode
-            || !(event.packet instanceof PlayerMoveC2SPacket)
-            || mode.get() != Mode.Packet
-            || ((IPlayerMoveC2SPacket) event.packet).meteor$getTag() == 1337) return;
+        if (mc.player.getAbilities().creativeMode) return;
+        if (((IPlayerMoveC2SPacket) packet).meteor$getTag() == 1337) return;
 
+        if (mode.get() == Mode.Packet) {
+            if (!Modules.get().isActive(Flight.class)) {
+                if (mc.player.isGliding()) return;
+                if (mc.player.getVelocity().y > -0.5) return;
+                ((PlayerMoveC2SPacketAccessor) packet).meteor$setOnGround(true);
+            } else {
+                ((PlayerMoveC2SPacketAccessor) packet).meteor$setOnGround(true);
+            }
+        } else if (mode.get() == Mode.Vulcan) {
+            if (!mc.player.isOnGround() && airTicks < vulcanStepCValues.length - 1) {
+                airTicks++;
+            } else {
+                airTicks = 0;
+            }
 
-        if (!Modules.get().isActive(Flight.class)) {
-            if (mc.player.isGliding()) return;
-            if (mc.player.getVelocity().y > -0.5) return;
-            ((PlayerMoveC2SPacketAccessor) event.packet).meteor$setOnGround(true);
-        } else {
-            ((PlayerMoveC2SPacketAccessor) event.packet).meteor$setOnGround(true);
+            if (mc.player.fallDistance > 3.0f) {
+                if (vulcanMode.get() == VulcanMode.AirStop) {
+                    mc.player.setVelocity(0, -0.1, 0);
+                    stopMove = true;
+                    fixFlag = true;
+                }
+
+                ((PlayerMoveC2SPacketAccessor) packet).meteor$setOnGround(true);
+                airTicks = 0;
+                mc.player.fallDistance = 0;
+            } else if (fixFlag) {
+                double vel = vulcanStepCValues[Math.min(airTicks, vulcanStepCValues.length - 1)] + 0.05;
+                mc.player.setVelocity(0, vel, 0);
+                fixFlag = false;
+            }
+        }
+    }
+
+    @EventHandler
+    private void onPlayerMove(PlayerMoveEvent event) {
+        if (mode.get() == Mode.Vulcan && stopMove && vulcanMode.get() == VulcanMode.AirStop) {
+            ((IVec3d) event.movement).meteor$set(0, event.movement.y, 0);
+            stopMove = false;
         }
     }
 
@@ -230,7 +285,13 @@ public class NoFall extends Module {
     public enum Mode {
         Packet,
         AirPlace,
-        Place
+        Place,
+        Vulcan
+    }
+
+    public enum VulcanMode {
+        Spoof,
+        AirStop
     }
 
     public enum PlacedItem {
