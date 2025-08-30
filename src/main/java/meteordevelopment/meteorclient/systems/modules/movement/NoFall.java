@@ -68,14 +68,6 @@ public class NoFall extends Module {
         .build()
     );
 
-    private final Setting<VulcanMode> vulcanMode = sgGeneral.add(new EnumSetting.Builder<VulcanMode>()
-        .name("vulcan-mode")
-        .description("How Vulcan mode prevents fall damage.")
-        .defaultValue(VulcanMode.Spoof)
-        .visible(() -> mode.get() == Mode.Vulcan)
-        .build()
-    );
-
     private final Setting<Boolean> anchor = sgGeneral.add(new BoolSetting.Builder()
         .name("anchor")
         .description("Centers the player and reduces movement when using bucket or air place mode.")
@@ -159,11 +151,9 @@ public class NoFall extends Module {
             }
 
             if (mc.player.fallDistance > 3.0f) {
-                if (vulcanMode.get() == VulcanMode.AirStop) {
-                    mc.player.setVelocity(0, -0.1, 0);
-                    stopMove = true;
-                    fixFlag = true;
-                }
+                mc.player.setVelocity(0, -0.1, 0);
+                stopMove = true;
+                fixFlag = true;
 
                 ((PlayerMoveC2SPacketAccessor) packet).meteor$setOnGround(true);
                 airTicks = 0;
@@ -178,7 +168,7 @@ public class NoFall extends Module {
 
     @EventHandler
     private void onPlayerMove(PlayerMoveEvent event) {
-        if (mode.get() == Mode.Vulcan && stopMove && vulcanMode.get() == VulcanMode.AirStop) {
+        if (mode.get() == Mode.Vulcan && stopMove) {
             ((IVec3d) event.movement).meteor$set(0, event.movement.y, 0);
             stopMove = false;
         }
@@ -287,11 +277,6 @@ public class NoFall extends Module {
         AirPlace,
         Place,
         Vulcan
-    }
-
-    public enum VulcanMode {
-        Spoof,
-        AirStop
     }
 
     public enum PlacedItem {
