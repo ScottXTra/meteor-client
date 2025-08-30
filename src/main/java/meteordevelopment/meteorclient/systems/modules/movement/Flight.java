@@ -13,11 +13,14 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.Utils;
+import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.AbstractBlock;
 import net.minecraft.entity.Entity;
 import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
 import net.minecraft.network.packet.s2c.play.PlayerAbilitiesS2CPacket;
+import net.minecraft.network.packet.s2c.play.EntityVelocityUpdateS2CPacket;
+import net.minecraft.network.packet.s2c.play.ExplosionS2CPacket;
 import net.minecraft.server.network.ServerPlayNetworkHandler;
 import net.minecraft.util.math.Vec3d;
 
@@ -32,6 +35,9 @@ public class Flight extends Module {
         .onChanged(mode -> {
             if (!isActive() || !Utils.canUpdate()) return;
             abilitiesOff();
+            ticks = 0;
+            ticks2 = 0;
+            damaged = false;
         })
         .build()
     );
@@ -41,6 +47,7 @@ public class Flight extends Module {
         .description("Your speed when flying.")
         .defaultValue(0.1)
         .min(0.0)
+        .visible(() -> mode.get() != Mode.Vulcan)
         .build()
     );
 
@@ -48,6 +55,7 @@ public class Flight extends Module {
         .name("vertical-speed-match")
         .description("Matches your vertical speed to your horizontal speed, otherwise uses vanilla ratio.")
         .defaultValue(false)
+        .visible(() -> mode.get() != Mode.Vulcan)
         .build()
     );
 
@@ -59,10 +67,19 @@ public class Flight extends Module {
         .build()
     );
 
+    private final Setting<Boolean> damage = sgGeneral.add(new BoolSetting.Builder()
+        .name("damage")
+        .description("Damages you to bypass some anti-cheat checks.")
+        .defaultValue(false)
+        .visible(() -> mode.get() == Mode.Vulcan)
+        .build()
+    );
+
     private final Setting<AntiKickMode> antiKickMode = sgAntiKick.add(new EnumSetting.Builder<AntiKickMode>()
         .name("mode")
         .description("The mode for anti kick.")
         .defaultValue(AntiKickMode.Packet)
+        .visible(() -> mode.get() != Mode.Vulcan)
         .build()
     );
 
@@ -72,6 +89,7 @@ public class Flight extends Module {
         .defaultValue(20)
         .min(1)
         .sliderMax(200)
+        .visible(() -> mode.get() != Mode.Vulcan)
         .build()
     );
 
@@ -82,6 +100,7 @@ public class Flight extends Module {
         .defaultValue(1)
         .min(1)
         .sliderRange(1, 20)
+        .visible(() -> mode.get() != Mode.Vulcan)
         .build()
     );
 
@@ -90,6 +109,9 @@ public class Flight extends Module {
     private boolean flip;
     private float lastYaw;
     private double lastPacketY = Double.MAX_VALUE;
+    private int ticks;
+    private int ticks2;
+    private boolean damaged;
 
     public Flight() {
         super(Categories.Movement, "flight", "FLYYYY! No Fall is recommended with this module.");
@@ -97,10 +119,18 @@ public class Flight extends Module {
 
     @Override
     public void onActivate() {
+        ticks = 0;
+        ticks2 = 0;
+        damaged = false;
+
         if (mode.get() == Mode.Abilities && !mc.player.isSpectator()) {
             mc.player.getAbilities().flying = true;
             if (mc.player.getAbilities().creativeMode) return;
             mc.player.getAbilities().allowFlying = true;
+        } else if (mode.get() == Mode.Vulcan && damage.get()) {
+            mc.player.setPosition(mc.player.getX(), mc.player.getY() + 4.4, mc.player.getZ());
+            mc.player.setVelocity(0, 5.6, 0);
+            damaged = true;
         }
     }
 
@@ -109,6 +139,9 @@ public class Flight extends Module {
         if (mode.get() == Mode.Abilities && !mc.player.isSpectator()) {
             abilitiesOff();
         }
+        ticks = 0;
+        ticks2 = 0;
+        damaged = false;
     }
 
     @EventHandler
@@ -174,6 +207,27 @@ public class Flight extends Module {
                 if (mc.player.getAbilities().creativeMode) return;
                 mc.player.getAbilities().allowFlying = true;
             }
+            case Vulcan -> {
+                Vec3d velocity = mc.player.getVelocity();
+                if (velocity.y < -0.0025) {
+                    Vec3d hv = PlayerUtils.getHorizontalVelocity(4.3);
+                    velocity = new Vec3d(hv.x, velocity.y, hv.z);
+                }
+
+                ticks++;
+                if (damaged && mc.player.hurtTime <= 1) {
+                    velocity = new Vec3d(velocity.x, 0, velocity.z);
+                    damaged = false;
+                } else if (ticks % 2 == 0) {
+                    ticks2++;
+                    double y = (ticks2 % 3 == 0) ? -0.1 : -0.155;
+                    velocity = new Vec3d(velocity.x, y, velocity.z);
+                } else {
+                    velocity = new Vec3d(velocity.x, -0.1, velocity.z);
+                }
+
+                mc.player.setVelocity(velocity);
+            }
         }
     }
 
@@ -194,7 +248,16 @@ public class Flight extends Module {
      */
     @EventHandler
     private void onSendPacket(PacketEvent.Send event) {
-        if (!(event.packet instanceof PlayerMoveC2SPacket packet) || antiKickMode.get() != AntiKickMode.Packet) return;
+        if (!(event.packet instanceof PlayerMoveC2SPacket packet)) return;
+
+        if (mode.get() == Mode.Vulcan) {
+            if (!mc.player.isOnGround() && ticks % 10 == 0) {
+                ((PlayerMoveC2SPacketAccessor) packet).meteor$setOnGround(true);
+            }
+            return;
+        }
+
+        if (antiKickMode.get() != AntiKickMode.Packet) return;
 
         double currentY = packet.getY(Double.MAX_VALUE);
         if (currentY != Double.MAX_VALUE) {
@@ -230,6 +293,17 @@ public class Flight extends Module {
 
     @EventHandler
     private void onReceivePacket(PacketEvent.Receive event) {
+        if (mode.get() == Mode.Vulcan) {
+            if (event.packet instanceof EntityVelocityUpdateS2CPacket packet && packet.getEntityId() == mc.player.getId()) {
+                event.cancel();
+                return;
+            }
+            if (event.packet instanceof ExplosionS2CPacket) {
+                event.cancel();
+                return;
+            }
+        }
+
         if (!(event.packet instanceof PlayerAbilitiesS2CPacket packet) || mode.get() != Mode.Abilities) return;
         event.cancel(); // Cancel packet, so fly won't be toggled
 
@@ -269,7 +343,8 @@ public class Flight extends Module {
 
     public enum Mode {
         Abilities,
-        Velocity
+        Velocity,
+        Vulcan
     }
 
     public enum AntiKickMode {
