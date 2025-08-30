@@ -3,20 +3,19 @@ package meteordevelopment.meteorclient.systems.modules.combat;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
-import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.entity.fakeplayer.FakePlayerEntity;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerPosition;
-import net.minecraft.network.packet.Packet;
 import net.minecraft.network.listener.ClientPlayPacketListener;
+import net.minecraft.network.packet.Packet;
 import net.minecraft.network.packet.s2c.play.EntityPositionS2CPacket;
 import net.minecraft.network.packet.s2c.play.EntityS2CPacket;
-import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.Iterator;
@@ -56,15 +55,16 @@ public class BackTrack extends Module {
         .build()
     );
 
-    private final Setting<SettingColor> realColor = sgGeneral.add(new ColorSetting.Builder()
-        .name("real-color")
-        .description("Color of the real position box.")
+    private final Setting<SettingColor> lineColor = sgGeneral.add(new ColorSetting.Builder()
+        .name("line-color")
+        .description("Color of the line connecting real and delayed positions.")
         .defaultValue(new SettingColor(255, 0, 0, 75))
         .build()
     );
 
     private final Queue<DelayedPacket> packets = new ConcurrentLinkedQueue<>();
     private final Map<Integer, Vec3d> realPositions = new ConcurrentHashMap<>();
+    private final Map<Integer, FakePlayerEntity> fakePlayers = new ConcurrentHashMap<>();
 
     public BackTrack() {
         super(Categories.Combat, "backtrack", "Delays incoming movement packets making players appear at previous positions.");
@@ -74,6 +74,8 @@ public class BackTrack extends Module {
     public void onDeactivate() {
         packets.clear();
         realPositions.clear();
+        fakePlayers.values().forEach(FakePlayerEntity::despawn);
+        fakePlayers.clear();
     }
 
     @EventHandler
@@ -90,6 +92,8 @@ public class BackTrack extends Module {
             pos = pos.add(s2c.getDeltaX() / 4096.0, s2c.getDeltaY() / 4096.0, s2c.getDeltaZ() / 4096.0);
             realPositions.put(entity.getId(), pos);
 
+            updateFakePlayer(entity, pos);
+
             packets.add(new DelayedPacket(packet, entity.getId(), System.currentTimeMillis() + randomDelay()));
             event.cancel();
         } else if (packet instanceof EntityPositionS2CPacket p) {
@@ -97,7 +101,10 @@ public class BackTrack extends Module {
             if (!shouldTrack(entity)) return;
 
             PlayerPosition applied = PlayerPosition.apply(PlayerPosition.fromEntity(entity), p.change(), p.relatives());
-            realPositions.put(entity.getId(), applied.position());
+            Vec3d pos = applied.position();
+            realPositions.put(entity.getId(), pos);
+
+            updateFakePlayer(entity, pos);
 
             packets.add(new DelayedPacket(packet, entity.getId(), System.currentTimeMillis() + randomDelay()));
             event.cancel();
@@ -116,24 +123,48 @@ public class BackTrack extends Module {
             }
         }
 
-        // cleanup positions
+        // cleanup positions and fake players
         realPositions.entrySet().removeIf(entry -> {
             Entity e = mc.world.getEntityById(entry.getKey());
-            return e == null || e.distanceTo(mc.player) > range.get();
+            if (e == null || e.distanceTo(mc.player) > range.get()) {
+                FakePlayerEntity fp = fakePlayers.remove(entry.getKey());
+                if (fp != null) fp.despawn();
+                return true;
+            }
+            return false;
         });
     }
 
     @EventHandler
     private void onRender(Render3DEvent event) {
-        for (Map.Entry<Integer, Vec3d> entry : realPositions.entrySet()) {
+        for (Map.Entry<Integer, FakePlayerEntity> entry : fakePlayers.entrySet()) {
             Entity entity = mc.world.getEntityById(entry.getKey());
             if (entity == null) continue;
 
-            Vec3d pos = entry.getValue();
-            double w = entity.getWidth();
-            double h = entity.getHeight();
-            Box box = new Box(pos.x - w / 2, pos.y, pos.z - w / 2, pos.x + w / 2, pos.y + h, pos.z + w / 2);
-            event.renderer.box(box, realColor.get(), realColor.get(), ShapeMode.Lines, 0);
+            FakePlayerEntity fake = entry.getValue();
+            event.renderer.line(fake.getX(), fake.getY(), fake.getZ(), entity.getX(), entity.getY(), entity.getZ(), lineColor.get());
+        }
+    }
+
+    private void updateFakePlayer(Entity entity, Vec3d pos) {
+        FakePlayerEntity fake = fakePlayers.get(entity.getId());
+        if (fake == null && entity instanceof PlayerEntity player) {
+            float health = player.getHealth() + player.getAbsorptionAmount();
+            fake = new FakePlayerEntity(player, player.getGameProfile().getName(), health, true);
+            fake.doNotPush = true;
+            fake.noHit = true;
+            fake.spawn();
+            fakePlayers.put(entity.getId(), fake);
+        }
+
+        if (fake != null) {
+            fake.setPos(pos.x, pos.y, pos.z);
+            fake.setYaw(entity.getYaw());
+            fake.setPitch(entity.getPitch());
+            if (entity instanceof PlayerEntity p) {
+                fake.headYaw = p.headYaw;
+                fake.bodyYaw = p.bodyYaw;
+            }
         }
     }
 
