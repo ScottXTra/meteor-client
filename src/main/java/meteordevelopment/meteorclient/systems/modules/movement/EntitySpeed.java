@@ -16,6 +16,7 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.mob.GhastEntity;
 import net.minecraft.util.math.Vec3d;
 
 public class EntitySpeed extends Module {
@@ -57,8 +58,20 @@ public class EntitySpeed extends Module {
         if (onlyOnGround.get() && !entity.isOnGround()) return;
         if (!inWater.get() && entity.isTouchingWater()) return;
 
-        // Set horizontal velocity
+        // Set velocity
         Vec3d vel = PlayerUtils.getHorizontalVelocity(speed.get());
-        ((IVec3d) event.movement).meteor$setXZ(vel.x, vel.z);
+
+        if (entity instanceof GhastEntity) {
+            double originalH = Math.sqrt(event.movement.x * event.movement.x + event.movement.z * event.movement.z);
+            double newH = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+            double y = event.movement.y;
+
+            if (originalH != 0) y *= newH / originalH;
+            else y = 0;
+
+            ((IVec3d) event.movement).meteor$set(vel.x, y, vel.z);
+        } else {
+            ((IVec3d) event.movement).meteor$setXZ(vel.x, vel.z);
+        }
     }
 }
