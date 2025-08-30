@@ -386,35 +386,35 @@ public class Modules extends System<Modules> {
     }
 
     private void initCombat() {
-        //add(new AnchorAura());
-        //add(new AntiAnvil());
-        //add(new AntiBed());
-        //add(new ArrowDodge());
-        //add(new AutoAnvil());
+        add(new AnchorAura());
+        add(new AntiAnvil());
+        add(new AntiBed());
+        add(new ArrowDodge());
+        add(new AutoAnvil());
         add(new AutoArmor());
-        //add(new AutoCity());
-        //add(new AutoEXP());
+        add(new AutoCity());
+        add(new AutoEXP());
         add(new AutoLog());
-        //add(new AutoTotem());
-        //add(new AutoTrap());
+        add(new AutoTotem());
+        add(new AutoTrap());
         add(new AutoWeapon());
-        //add(new AutoWeb());
+        add(new AutoWeb());
         add(new BackTrack());
-        //add(new BedAura());
+        add(new BedAura());
         add(new BowAimbot());
-        //add(new BowSpam());
-        //add(new Burrow());
+        add(new BowSpam());
+        add(new Burrow());
         add(new Criticals());
-        //add(new CrystalAura());
+        add(new CrystalAura());
         add(new Hitboxes());
-        //add(new HoleFiller());
+        add(new HoleFiller());
         add(new KillAura());
         add(new Offhand());
-        //add(new Quiver());
-       // add(new SelfAnvil());
-        //add(new SelfTrap());
-        //add(new SelfWeb());
-        //add(new Surround());
+        add(new Quiver());
+        add(new SelfAnvil());
+        add(new SelfTrap());
+        add(new SelfWeb());
+        add(new Surround());
     }
 
     private void initPlayer() {
@@ -426,22 +426,22 @@ public class Modules extends System<Modules> {
         add(new AutoFish());
         add(new AutoGap());
         add(new AutoMend());
-        //add(new AutoReplenish());
+        add(new AutoReplenish());
         add(new AutoRespawn());
         add(new AutoTool());
-        //add(new BreakDelay());
-        //add(new ChestSwap());
-        //add(new EXPThrower());
+        add(new BreakDelay());
+        add(new ChestSwap());
+        add(new EXPThrower());
         add(new FakePlayer());
         add(new FastUse());
         add(new GhostHand());
-       //add(new InstantRebreak());
+        add(new InstantRebreak());
         add(new LiquidInteract());
         add(new MiddleClickExtra());
         add(new Multitask());
         add(new NameProtect());
-        //add(new NoInteract());
-        //add(new NoMiningTrace());
+        add(new NoInteract());
+        add(new NoMiningTrace());
         add(new NoRotate());
         add(new NoStatusEffects());
         add(new OffhandCrash());
@@ -454,11 +454,11 @@ public class Modules extends System<Modules> {
 
     private void initMovement() {
         add(new AirJump());
-        //add(new Anchor());
-        //add(new AntiVoid());
-        //add(new AutoJump());
+        add(new Anchor());
+        add(new AntiVoid());
+        add(new AutoJump());
         add(new AutoWalk());
-        //add(new AutoWasp());
+        add(new AutoWasp());
         add(new Blink());
         add(new BoatFly());
         add(new ClickTP());
@@ -474,14 +474,14 @@ public class Modules extends System<Modules> {
         add(new LongJump());
         add(new NoFall());
         add(new NoSlow());
-        //add(new Parkour());
+        add(new Parkour());
         add(new ReverseStep());
         add(new SafeWalk());
         add(new Scaffold());
-        //add(new Slippy());
+        add(new Slippy());
         add(new Sneak());
         add(new Speed());
-        //add(new Spider());
+        add(new Spider());
         add(new Sprint());
         add(new Step());
         add(new TridentBoost());
@@ -489,69 +489,69 @@ public class Modules extends System<Modules> {
     }
 
     private void initRender() {
-        //add(new BetterTab());
-        //add(new BetterTooltips());
+        add(new BetterTab());
+        add(new BetterTooltips());
         add(new BlockESP());
         add(new BlockSelection());
-        //add(new Blur());
-        //add(new BossStack());
+        add(new Blur());
+        add(new BossStack());
         add(new Breadcrumbs());
         add(new BreakIndicators());
-        //add(new CameraTweaks());
+        add(new CameraTweaks());
         add(new Chams());
-        //add(new CityESP());
+        add(new CityESP());
         add(new EntityOwner());
         add(new ESP());
         add(new Freecam());
-        //add(new FreeLook());
+        add(new FreeLook());
         add(new Fullbright());
-        //add(new HandView());
-        //add(new HoleESP());
-       // add(new ItemPhysics());
-        //add(new ItemHighlight());
+        add(new HandView());
+        add(new HoleESP());
+        add(new ItemPhysics());
+        add(new ItemHighlight());
         add(new LightOverlay());
         add(new LogoutSpots());
         add(new Marker());
         add(new Nametags());
         add(new NoRender());
-        //add(new PopChams());
+        add(new PopChams());
         add(new StorageESP());
-        //add(new TimeChanger());
+        add(new TimeChanger());
         add(new Tracers());
-        //add(new Trail());
+        add(new Trail());
         add(new Trajectories());
-        //add(new TunnelESP());
-        //add(new VoidESP());
-        //add(new WallHack());
+        add(new TunnelESP());
+        add(new VoidESP());
+        add(new WallHack());
         add(new WaypointsModule());
         add(new Xray());
         add(new Zoom());
     }
 
     private void initWorld() {
-        //add(new Ambience());
-        //add(new AutoBreed());
-        //add(new AutoBrewer());
-        //add(new AutoMount());
-        //add(new AutoNametag());
-        //add(new AutoShearer());
+        add(new Ambience());
+        add(new AutoBreed());
+        add(new AutoBrewer());
+        add(new AutoMount());
+        add(new AutoNametag());
+        add(new AutoShearer());
         add(new AutoSign());
         add(new AutoSmelter());
-        //add(new BuildHeight());
-        //add(new Collisions());
-        //add(new EChestFarmer());
+        add(new BuildHeight());
+        add(new Collisions());
+        add(new EChestFarmer());
         add(new EndermanLook());
         add(new Flamethrower());
-        //add(new HighwayBuilder());
-        //add(new LiquidFiller());
+        add(new HighwayBuilder());
+        add(new LiquidFiller());
         add(new MountBypass());
-        //add(new NoGhostBlocks());
-        //add(new Nuker());
+        add(new NoGhostBlocks());
+        add(new Nuker());
         add(new PacketMine());
         add(new StashFinder());
-        //add(new SpawnProofer());
+        add(new SpawnProofer());
         add(new Timer());
-        //add(new VeinMiner());
+        add(new VeinMiner());
 
         if (BaritoneUtils.IS_AVAILABLE) {
             add(new Excavator());
@@ -562,19 +562,19 @@ public class Modules extends System<Modules> {
     private void initMisc() {
         add(new AntiPacketKick());
         add(new AutoReconnect());
-        //add(new BetterBeacons());
-        //add(new BetterChat());
+        add(new BetterBeacons());
+        add(new BetterChat());
         add(new BookBot());
-        //add(new DiscordPresence());
-        //add(new InventoryTweaks());
-        //add(new MessageAura());
-        //add(new Notebot());
-        //add(new Notifier());
+        add(new DiscordPresence());
+        add(new InventoryTweaks());
+        add(new MessageAura());
+        add(new Notebot());
+        add(new Notifier());
         add(new PacketCanceller());
         add(new PingSpoof());
         add(new ServerSpoof());
-       // add(new SoundBlocker());
-        //add(new Spam());
-        //add(new Swarm());
+        add(new SoundBlocker());
+        add(new Spam());
+        add(new Swarm());
     }
 }
