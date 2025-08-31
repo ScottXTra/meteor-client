@@ -17,6 +17,8 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -25,6 +27,7 @@ import java.time.format.DateTimeFormatter;
  */
 public class PacketLogger extends Module {
     private BufferedWriter writer;
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     public PacketLogger() {
         super(Categories.Misc, "packet-logger", "Logs all outgoing packets to a file and chat.");
@@ -67,11 +70,31 @@ public class PacketLogger extends Module {
         String name = PacketUtils.getName(packetClass);
         if (name == null) name = packetClass.getName();
 
-        info(name);
+        StringBuilder logBuilder = new StringBuilder();
+        logBuilder.append("[").append(LocalDateTime.now().format(TIME_FORMATTER)).append("] ");
+        logBuilder.append(name);
+
+        Packet<?> packet = event.packet;
+        Class<?> clazz = packet.getClass();
+        while (clazz != Object.class) {
+            for (Field field : clazz.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                field.setAccessible(true);
+                try {
+                    Object value = field.get(packet);
+                    logBuilder.append(" ").append(field.getName()).append("=").append(value);
+                } catch (IllegalAccessException ignored) {
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
+
+        String log = logBuilder.toString();
+        info(log);
 
         if (writer != null) {
             try {
-                writer.write(name);
+                writer.write(log);
                 writer.newLine();
                 writer.flush();
             } catch (IOException e) {
