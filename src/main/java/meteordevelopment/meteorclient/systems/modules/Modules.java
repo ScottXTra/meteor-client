@@ -512,6 +512,7 @@ public class Modules extends System<Modules> {
         add(new LightOverlay());
         add(new LogoutSpots());
         add(new Marker());
+        add(new MobHealth());
         add(new Nametags());
         add(new NoRender());
         add(new PopChams());
