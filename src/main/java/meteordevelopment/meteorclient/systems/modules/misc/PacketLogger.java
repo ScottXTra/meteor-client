@@ -7,6 +7,7 @@ package meteordevelopment.meteorclient.systems.modules.misc;
 
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
+import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.PacketListSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
@@ -27,7 +28,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Set;
 
 /**
- * Logs all outgoing packets to a file and chat.
+ * Logs packets to a file and chat.
  */
 public class PacketLogger extends Module {
     private BufferedWriter writer;
@@ -42,8 +43,23 @@ public class PacketLogger extends Module {
         .build()
     );
 
+    private final Setting<Boolean> logIncoming = sgGeneral.add(new BoolSetting.Builder()
+        .name("log-incoming")
+        .description("Logs packets received from the server.")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Set<Class<? extends Packet<?>>>> ignoreIncomingPackets = sgGeneral.add(new PacketListSetting.Builder()
+        .name("ignore-incoming-packets")
+        .description("Server-to-client packets to not log.")
+        .filter(aClass -> PacketUtils.getS2CPackets().contains(aClass))
+        .visible(logIncoming::get)
+        .build()
+    );
+
     public PacketLogger() {
-        super(Categories.Misc, "packet-logger", "Logs all outgoing packets to a file and chat.");
+        super(Categories.Misc, "packet-logger", "Logs packets to a file and chat.");
     }
 
     @Override
@@ -80,6 +96,50 @@ public class PacketLogger extends Module {
         @SuppressWarnings("unchecked")
         Class<? extends Packet<?>> packetClass = (Class<? extends Packet<?>>) event.packet.getClass();
         if (ignorePackets.get().contains(packetClass)) return;
+
+        String name = PacketUtils.getName(packetClass);
+        if (name == null) name = packetClass.getName();
+
+        StringBuilder logBuilder = new StringBuilder();
+        logBuilder.append("[").append(LocalDateTime.now().format(TIME_FORMATTER)).append("] ");
+        logBuilder.append(name);
+
+        Packet<?> packet = event.packet;
+        Class<?> clazz = packet.getClass();
+        while (clazz != Object.class) {
+            for (Field field : clazz.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                field.setAccessible(true);
+                try {
+                    Object value = field.get(packet);
+                    logBuilder.append(" ").append(field.getName()).append("=").append(value);
+                } catch (IllegalAccessException ignored) {
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
+
+        String log = logBuilder.toString();
+        info(log);
+
+        if (writer != null) {
+            try {
+                writer.write(log);
+                writer.newLine();
+                writer.flush();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    @EventHandler
+    private void onReceivePacket(PacketEvent.Receive event) {
+        if (!logIncoming.get()) return;
+
+        @SuppressWarnings("unchecked")
+        Class<? extends Packet<?>> packetClass = (Class<? extends Packet<?>>) event.packet.getClass();
+        if (ignoreIncomingPackets.get().contains(packetClass)) return;
 
         String name = PacketUtils.getName(packetClass);
         if (name == null) name = packetClass.getName();
