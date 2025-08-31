@@ -7,6 +7,9 @@ package meteordevelopment.meteorclient.systems.modules.misc;
 
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
+import meteordevelopment.meteorclient.settings.PacketListSetting;
+import meteordevelopment.meteorclient.settings.Setting;
+import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.network.PacketUtils;
@@ -21,6 +24,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Set;
 
 /**
  * Logs all outgoing packets to a file and chat.
@@ -28,6 +32,15 @@ import java.time.format.DateTimeFormatter;
 public class PacketLogger extends Module {
     private BufferedWriter writer;
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    private final SettingGroup sgGeneral = settings.getDefaultGroup();
+
+    private final Setting<Set<Class<? extends Packet<?>>>> ignorePackets = sgGeneral.add(new PacketListSetting.Builder()
+        .name("ignore-packets")
+        .description("Client-to-server packets to not log.")
+        .filter(aClass -> PacketUtils.getC2SPackets().contains(aClass))
+        .build()
+    );
 
     public PacketLogger() {
         super(Categories.Misc, "packet-logger", "Logs all outgoing packets to a file and chat.");
@@ -66,6 +79,7 @@ public class PacketLogger extends Module {
     private void onSendPacket(PacketEvent.Send event) {
         @SuppressWarnings("unchecked")
         Class<? extends Packet<?>> packetClass = (Class<? extends Packet<?>>) event.packet.getClass();
+        if (ignorePackets.get().contains(packetClass)) return;
 
         String name = PacketUtils.getName(packetClass);
         if (name == null) name = packetClass.getName();
