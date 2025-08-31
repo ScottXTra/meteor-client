@@ -31,7 +31,7 @@ import java.util.Set;
  */
 public class PacketLogger extends Module {
     private BufferedWriter writer;
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
