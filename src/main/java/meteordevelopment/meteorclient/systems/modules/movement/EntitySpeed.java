@@ -16,6 +16,7 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.registry.Registries;
 import net.minecraft.util.math.Vec3d;
 
 public class EntitySpeed extends Module {
@@ -71,6 +72,9 @@ public class EntitySpeed extends Module {
         if (horizontal && sideways) velY *= 1 / Math.sqrt(2);
 
         ((IVec3d) event.movement).meteor$setXZ(vel.x, vel.z);
-        ((IVec3d) event.movement).meteor$setY(velY);
+
+        if (Registries.ENTITY_TYPE.getId(entity.getType()).getPath().equals("happy_ghast")) {
+            ((IVec3d) event.movement).meteor$setY(velY);
+        }
     }
 }
