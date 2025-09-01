@@ -2,6 +2,17 @@ package meteordevelopment.meteorclient.utils.network;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import net.minecraft.client.MinecraftClient;
@@ -9,14 +20,7 @@ import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
 import net.minecraft.client.network.ServerAddress;
 import net.minecraft.client.network.ServerInfo;
-
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
+import net.minecraft.client.util.ScreenshotRecorder;
 
 public class WebCommandServer {
     private static HttpServer server;
@@ -57,43 +61,57 @@ public class WebCommandServer {
 
     private static void handleConnect(HttpExchange exchange) throws IOException {
         if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            // Also allow GET to show the form again if someone browses to /connect directly
-            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                byte[] page = renderForm(null).getBytes(StandardCharsets.UTF_8);
-                exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
-                exchange.sendResponseHeaders(200, page.length);
-                try (OutputStream os = exchange.getResponseBody()) {
-                    os.write(page);
-                }
-                return;
-            }
             exchange.sendResponseHeaders(405, -1);
             return;
         }
 
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         String serverAddr = parseForm(body).get("server");
+        if (serverAddr == null || serverAddr.isEmpty()) {
+            exchange.sendResponseHeaders(400, -1);
+            return;
+        }
 
-        String message;
-        if (serverAddr != null && !serverAddr.isEmpty()) {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            mc.execute(() -> ConnectScreen.connect(
+        MinecraftClient mc = MinecraftClient.getInstance();
+        CompletableFuture<byte[]> future = new CompletableFuture<>();
+        mc.execute(() -> {
+            ConnectScreen.connect(
                 new TitleScreen(), mc,
                 ServerAddress.parse(serverAddr),
                 new ServerInfo("Server", serverAddr, ServerInfo.ServerType.OTHER),
                 false, null
-            ));
-            message = "Submitted connection attempt to <code>" + escapeHtml(serverAddr) + "</code>.";
-        } else {
-            message = "Please enter a valid <code>ip:port</code>.";
-        }
+            );
 
-        // Return the form again with a small status message so the inputs remain on screen
-        byte[] bytes = renderForm(message).getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
-        exchange.sendResponseHeaders(200, bytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
+            new Thread(() -> {
+                try {
+                    Thread.sleep(5000);
+                    mc.execute(() -> ScreenshotRecorder.takeScreenshot(mc.getFramebuffer(), image -> {
+                        try {
+                            Path temp = Files.createTempFile("meteor-web", ".png");
+                            image.writeTo(temp);
+                            byte[] data = Files.readAllBytes(temp);
+                            Files.deleteIfExists(temp);
+                            image.close();
+                            future.complete(data);
+                        } catch (IOException e) {
+                            future.completeExceptionally(e);
+                        }
+                    }));
+                } catch (InterruptedException e) {
+                    future.completeExceptionally(e);
+                }
+            }, "Meteor-WebCommandServer-Screenshot").start();
+        });
+
+        try {
+            byte[] bytes = future.get();
+            exchange.getResponseHeaders().add("Content-Type", "image/png");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            exchange.sendResponseHeaders(500, -1);
         }
     }
 
