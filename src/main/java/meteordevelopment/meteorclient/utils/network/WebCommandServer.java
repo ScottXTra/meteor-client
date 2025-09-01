@@ -93,6 +93,11 @@ public class WebCommandServer {
                         Thread.sleep(200);
                     }
 
+                    // Wait a bit longer after the player has loaded before taking
+                    // the screenshot. This gives the world time to fully render
+                    // before the pause menu is closed and the screenshot is taken.
+                    Thread.sleep(3000);
+
                     mc.execute(() -> {
                         // Temporarily disable pausing on lost focus so the game
                         // doesn't reopen the pause menu before the screenshot.
