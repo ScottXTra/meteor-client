@@ -7,6 +7,7 @@ package meteordevelopment.meteorclient.systems.modules.combat;
 
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.DoubleSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
@@ -30,8 +31,8 @@ import java.util.*;
 public class TeleportHit extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
-    private Vec3d serverTeleportPos = Vec3d.ZERO;
     private int renderTicks;
+    private List<Vec3d> renderPath = Collections.emptyList();
 
     private final Setting<Double> maxDistance = sgGeneral.add(new DoubleSetting.Builder()
         .name("max-distance")
@@ -48,6 +49,13 @@ public class TeleportHit extends Module {
         .defaultValue(5.0)
         .min(1.0)
         .sliderMax(20.0)
+        .build()
+    );
+
+    private final Setting<Boolean> multiTeleport = sgGeneral.add(new BoolSetting.Builder()
+        .name("multi-teleport")
+        .description("Teleport in multiple steps.")
+        .defaultValue(true)
         .build()
     );
 
@@ -86,28 +94,60 @@ public class TeleportHit extends Module {
         List<Vec3d> path = findPath(startPos, targetPos);
         if (path == null || path.size() < 2) return;
 
-        teleportAlong(path);
-        mc.interactionManager.attackEntity(mc.player, target);
-        mc.player.swingHand(Hand.MAIN_HAND);
-        teleportBack(path, startPos);
+        List<Vec3d> teleports = new ArrayList<>();
 
-        serverTeleportPos = targetPos;
+        if (multiTeleport.get()) {
+            teleports = teleportAlong(path);
+            mc.interactionManager.attackEntity(mc.player, target);
+            mc.player.swingHand(Hand.MAIN_HAND);
+            teleportBack(teleports, startPos);
+        } else {
+            Vec3d pos = path.get(path.size() - 1);
+            teleport(pos);
+            teleports.add(pos);
+            mc.interactionManager.attackEntity(mc.player, target);
+            mc.player.swingHand(Hand.MAIN_HAND);
+            teleport(startPos);
+        }
+
+        renderPath = new ArrayList<>();
+        renderPath.add(startPos);
+        renderPath.addAll(teleports);
         renderTicks = 2;
     }
 
     @EventHandler
     private void onRender(Render3DEvent event) {
         if (renderTicks <= 0 || mc.player == null) return;
+        if (renderPath == null || renderPath.size() < 2) return;
 
-        Box box = mc.player.getBoundingBox().offset(
-            serverTeleportPos.x - mc.player.getX(),
-            serverTeleportPos.y - mc.player.getY(),
-            serverTeleportPos.z - mc.player.getZ()
-        );
+        if (multiTeleport.get()) {
+            for (int i = 1; i < renderPath.size(); i++) {
+                Vec3d pos = renderPath.get(i);
+                Box box = mc.player.getBoundingBox().offset(
+                    pos.x - mc.player.getX(),
+                    pos.y - mc.player.getY(),
+                    pos.z - mc.player.getZ()
+                );
+                event.renderer.box(box, Color.WHITE, Color.WHITE, ShapeMode.Lines, 0);
+            }
 
-        event.renderer.box(box, Color.WHITE, Color.WHITE, ShapeMode.Lines, 0);
-        event.renderer.line(mc.player.getX(), mc.player.getY(), mc.player.getZ(),
-            serverTeleportPos.x, serverTeleportPos.y, serverTeleportPos.z, Color.WHITE);
+            for (int i = 0; i < renderPath.size() - 1; i++) {
+                Vec3d a = renderPath.get(i);
+                Vec3d b = renderPath.get(i + 1);
+                event.renderer.line(a.x, a.y, a.z, b.x, b.y, b.z, Color.WHITE);
+            }
+        } else {
+            Vec3d pos = renderPath.get(renderPath.size() - 1);
+            Box box = mc.player.getBoundingBox().offset(
+                pos.x - mc.player.getX(),
+                pos.y - mc.player.getY(),
+                pos.z - mc.player.getZ()
+            );
+            event.renderer.box(box, Color.WHITE, Color.WHITE, ShapeMode.Lines, 0);
+            event.renderer.line(mc.player.getX(), mc.player.getY(), mc.player.getZ(),
+                pos.x, pos.y, pos.z, Color.WHITE);
+        }
     }
 
     private List<Vec3d> findPath(Vec3d start, Vec3d end) {
@@ -170,19 +210,24 @@ public class TeleportHit extends Module {
         return mc.world.getBlockState(pos).isAir() && mc.world.getBlockState(pos.up()).isAir();
     }
 
-    private void teleportAlong(List<Vec3d> path) {
+    private List<Vec3d> teleportAlong(List<Vec3d> path) {
+        List<Vec3d> teleports = new ArrayList<>();
         int step = Math.max(1, (int) Math.floor(maxTeleportDistance.get()));
-        for (int i = step; i < path.size(); i += step) teleport(path.get(i));
-        if ((path.size() - 1) % step != 0) teleport(path.get(path.size() - 1));
+        for (int i = step; i < path.size(); i += step) {
+            Vec3d pos = path.get(i);
+            teleport(pos);
+            teleports.add(pos);
+        }
+        if ((path.size() - 1) % step != 0) {
+            Vec3d pos = path.get(path.size() - 1);
+            teleport(pos);
+            teleports.add(pos);
+        }
+        return teleports;
     }
 
-    private void teleportBack(List<Vec3d> path, Vec3d startPos) {
-        int step = Math.max(1, (int) Math.floor(maxTeleportDistance.get()));
-        int index = path.size() - 1 - step;
-        while (index > 0) {
-            teleport(path.get(index));
-            index -= step;
-        }
+    private void teleportBack(List<Vec3d> teleports, Vec3d startPos) {
+        for (int i = teleports.size() - 2; i >= 0; i--) teleport(teleports.get(i));
         teleport(startPos);
     }
 
