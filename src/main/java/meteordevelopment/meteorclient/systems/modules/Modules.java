@@ -416,6 +416,7 @@ public class Modules extends System<Modules> {
         add(new SelfTrap());
         add(new SelfWeb());
         add(new Surround());
+        add(new TeleportHit());
     }
 
     private void initPlayer() {
