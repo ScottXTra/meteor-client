@@ -406,6 +406,7 @@ public class Modules extends System<Modules> {
         add(new Burrow());
         add(new Criticals());
         add(new CrystalAura());
+        add(new FTeleport());
         add(new Hitboxes());
         add(new HoleFiller());
         add(new KillAura());
