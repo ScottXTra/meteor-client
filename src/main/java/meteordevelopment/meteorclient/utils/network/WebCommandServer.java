@@ -87,24 +87,33 @@ public class WebCommandServer {
                 try {
                     long start = System.currentTimeMillis();
                     while (true) {
-                        if (mc.player != null && mc.currentScreen == null) break;
+                        if (mc.player != null) break;
                         if (mc.currentScreen instanceof DisconnectedScreen) break;
                         if (System.currentTimeMillis() - start > 20000L) break;
                         Thread.sleep(200);
                     }
 
-                    mc.execute(() -> ScreenshotRecorder.takeScreenshot(mc.getFramebuffer(), image -> {
-                        try {
-                            Path temp = Files.createTempFile("meteor-web", ".png");
-                            image.writeTo(temp);
-                            byte[] data = Files.readAllBytes(temp);
-                            Files.deleteIfExists(temp);
-                            image.close();
-                            future.complete(data);
-                        } catch (IOException e) {
-                            future.completeExceptionally(e);
-                        }
-                    }));
+                    mc.execute(() -> {
+                        // Temporarily disable pausing on lost focus so the game
+                        // doesn't reopen the pause menu before the screenshot.
+                        boolean pauseOnLostFocus = mc.options.pauseOnLostFocus;
+                        mc.options.pauseOnLostFocus = false;
+                        mc.setScreen(null);
+                        mc.execute(() -> ScreenshotRecorder.takeScreenshot(mc.getFramebuffer(), image -> {
+                            try {
+                                Path temp = Files.createTempFile("meteor-web", ".png");
+                                image.writeTo(temp);
+                                byte[] data = Files.readAllBytes(temp);
+                                Files.deleteIfExists(temp);
+                                image.close();
+                                future.complete(data);
+                            } catch (IOException e) {
+                                future.completeExceptionally(e);
+                            } finally {
+                                mc.options.pauseOnLostFocus = pauseOnLostFocus;
+                            }
+                        }));
+                    });
                 } catch (InterruptedException e) {
                     future.completeExceptionally(e);
                 }
