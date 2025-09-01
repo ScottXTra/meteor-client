@@ -7,21 +7,15 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
-import net.minecraft.client.gui.screen.DisconnectedScreen;
 import net.minecraft.client.network.ServerAddress;
 import net.minecraft.client.network.ServerInfo;
-import net.minecraft.client.util.ScreenshotRecorder;
 
 public class WebCommandServer {
     private static HttpServer server;
@@ -74,66 +68,18 @@ public class WebCommandServer {
         }
 
         MinecraftClient mc = MinecraftClient.getInstance();
-        CompletableFuture<byte[]> future = new CompletableFuture<>();
-        mc.execute(() -> {
-            ConnectScreen.connect(
-                new TitleScreen(), mc,
-                ServerAddress.parse(serverAddr),
-                new ServerInfo("Server", serverAddr, ServerInfo.ServerType.OTHER),
-                false, null
-            );
+        mc.execute(() -> ConnectScreen.connect(
+            new TitleScreen(), mc,
+            ServerAddress.parse(serverAddr),
+            new ServerInfo("Server", serverAddr, ServerInfo.ServerType.OTHER),
+            false, null
+        ));
 
-            new Thread(() -> {
-                try {
-                    long start = System.currentTimeMillis();
-                    while (true) {
-                        if (mc.player != null) break;
-                        if (mc.currentScreen instanceof DisconnectedScreen) break;
-                        if (System.currentTimeMillis() - start > 20000L) break;
-                        Thread.sleep(200);
-                    }
-
-                    // Wait a bit longer after the player has loaded before taking
-                    // the screenshot. This gives the world time to fully render
-                    // before the pause menu is closed and the screenshot is taken.
-                    Thread.sleep(3000);
-
-                    mc.execute(() -> {
-                        // Temporarily disable pausing on lost focus so the game
-                        // doesn't reopen the pause menu before the screenshot.
-                        boolean pauseOnLostFocus = mc.options.pauseOnLostFocus;
-                        mc.options.pauseOnLostFocus = false;
-                        mc.setScreen(null);
-                        mc.execute(() -> ScreenshotRecorder.takeScreenshot(mc.getFramebuffer(), image -> {
-                            try {
-                                Path temp = Files.createTempFile("meteor-web", ".png");
-                                image.writeTo(temp);
-                                byte[] data = Files.readAllBytes(temp);
-                                Files.deleteIfExists(temp);
-                                image.close();
-                                future.complete(data);
-                            } catch (IOException e) {
-                                future.completeExceptionally(e);
-                            } finally {
-                                mc.options.pauseOnLostFocus = pauseOnLostFocus;
-                            }
-                        }));
-                    });
-                } catch (InterruptedException e) {
-                    future.completeExceptionally(e);
-                }
-            }, "Meteor-WebCommandServer-Screenshot").start();
-        });
-
-        try {
-            byte[] bytes = future.get();
-            exchange.getResponseHeaders().add("Content-Type", "image/png");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(bytes);
-            }
-        } catch (InterruptedException | ExecutionException e) {
-            exchange.sendResponseHeaders(500, -1);
+        byte[] bytes = "OK".getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
+        exchange.sendResponseHeaders(200, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
         }
     }
 
