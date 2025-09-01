@@ -2,6 +2,8 @@ package meteordevelopment.meteorclient.utils.network;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
@@ -28,7 +30,16 @@ public class WebCommandServer {
             server.createContext("/", WebCommandServer::handleRoot);
             server.createContext("/connect", WebCommandServer::handleConnect);
 
-            server.setExecutor(null);
+            // Use a dedicated non-daemon thread so the server keeps running even if
+            // Minecraft changes screens or idles in the background. This ensures the
+            // web command server remains available until the game exits explicitly.
+            ThreadFactory factory = r -> {
+                Thread t = new Thread(r, "Meteor-WebCommandServer");
+                t.setDaemon(false);
+                return t;
+            };
+
+            server.setExecutor(Executors.newSingleThreadExecutor(factory));
             server.start();
         } catch (IOException e) {
             e.printStackTrace();
