@@ -208,7 +208,16 @@ public class TeleportHit extends Module {
     }
 
     private boolean isSafe(BlockPos pos) {
-        return mc.world.getBlockState(pos).isAir() && mc.world.getBlockState(pos.up()).isAir();
+        if (!mc.world.getBlockState(pos).isAir() || !mc.world.getBlockState(pos.up()).isAir()) return false;
+
+        for (Direction dir : Direction.values()) {
+            if (dir == Direction.UP || dir == Direction.DOWN) continue;
+
+            BlockPos offset = pos.offset(dir);
+            if (!mc.world.getBlockState(offset).isAir() || !mc.world.getBlockState(offset.up()).isAir()) return false;
+        }
+
+        return true;
     }
 
     private List<Vec3d> teleportAlong(List<Vec3d> path) {
