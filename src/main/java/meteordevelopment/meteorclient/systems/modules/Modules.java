@@ -466,6 +466,7 @@ public class Modules extends System<Modules> {
         add(new ElytraFly());
         add(new EntityControl());
         add(new EntitySpeed());
+        add(new EndpointWalk());
         add(new FastClimb());
         add(new Flight());
         add(new GUIMove());
