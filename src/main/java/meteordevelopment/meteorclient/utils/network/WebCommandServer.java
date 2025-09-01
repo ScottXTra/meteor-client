@@ -18,6 +18,7 @@ import java.util.concurrent.ThreadFactory;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
+import net.minecraft.client.gui.screen.DisconnectedScreen;
 import net.minecraft.client.network.ServerAddress;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.client.util.ScreenshotRecorder;
@@ -84,7 +85,14 @@ public class WebCommandServer {
 
             new Thread(() -> {
                 try {
-                    Thread.sleep(5000);
+                    long start = System.currentTimeMillis();
+                    while (true) {
+                        if (mc.player != null && mc.currentScreen == null) break;
+                        if (mc.currentScreen instanceof DisconnectedScreen) break;
+                        if (System.currentTimeMillis() - start > 20000L) break;
+                        Thread.sleep(200);
+                    }
+
                     mc.execute(() -> ScreenshotRecorder.takeScreenshot(mc.getFramebuffer(), image -> {
                         try {
                             Path temp = Files.createTempFile("meteor-web", ".png");
