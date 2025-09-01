@@ -5,6 +5,7 @@
 
 package meteordevelopment.meteorclient.systems.modules.movement;
 
+import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.DoubleSetting;
 import meteordevelopment.meteorclient.settings.Setting;
@@ -13,7 +14,13 @@ import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.player.Rotations;
 import meteordevelopment.orbit.EventHandler;
+import meteordevelopment.orbit.EventPriority;
+import net.minecraft.network.ClientConnection;
+import net.minecraft.network.packet.Packet;
 import net.minecraft.util.math.Vec3d;
+
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class EndpointWalk extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
@@ -26,8 +33,19 @@ public class EndpointWalk extends Module {
         .build()
     );
 
+    private final Setting<Double> radius = sgGeneral.add(new DoubleSetting.Builder()
+        .name("spoof-radius")
+        .description("Radius around other players to enable ping spoofing.")
+        .defaultValue(6.0)
+        .min(1.0)
+        .build()
+    );
+
     private double x1, x2;
     private boolean toFirst;
+    private boolean spoofing;
+
+    private final Queue<QueuedPacket> queue = new ConcurrentLinkedQueue<>();
 
     public EndpointWalk() {
         super(Categories.Movement, "endpoint-walk", "Faces alternating endpoints along the X axis so you can walk back and forth.");
@@ -39,6 +57,13 @@ public class EndpointWalk extends Module {
         x1 = x + length.get();
         x2 = x - length.get();
         toFirst = true;
+        spoofing = false;
+    }
+
+    @Override
+    public void onDeactivate() {
+        flushQueue();
+        spoofing = false;
     }
 
     @EventHandler
@@ -53,6 +78,41 @@ public class EndpointWalk extends Module {
 
         if (Math.abs(mc.player.getX() - targetX) <= 1) {
             toFirst = !toFirst;
+        }
+
+        boolean inRange = mc.world.getPlayers().stream()
+            .anyMatch(p -> p != mc.player && p.squaredDistanceTo(mc.player) <= radius.get() * radius.get());
+
+        if (inRange) {
+            spoofing = true;
+        } else if (spoofing) {
+            flushQueue();
+            spoofing = false;
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST + 50)
+    private void onSendPacket(PacketEvent.Send event) {
+        if (!spoofing) return;
+
+        queue.add(new QueuedPacket(event.packet, event.connection));
+        event.cancel();
+    }
+
+    private void flushQueue() {
+        QueuedPacket p;
+        while ((p = queue.poll()) != null) {
+            p.connection.send(p.packet, null, true);
+        }
+    }
+
+    private static class QueuedPacket {
+        final Packet<?> packet;
+        final ClientConnection connection;
+
+        QueuedPacket(Packet<?> packet, ClientConnection connection) {
+            this.packet = packet;
+            this.connection = connection;
         }
     }
 }
