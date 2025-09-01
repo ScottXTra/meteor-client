@@ -48,7 +48,8 @@ public class TeleportHit extends Module {
         .description("Maximum distance per teleport step.")
         .defaultValue(5.0)
         .min(1.0)
-        .sliderMax(20.0)
+        .max(7.0)
+        .sliderMax(7.0)
         .build()
     );
 
