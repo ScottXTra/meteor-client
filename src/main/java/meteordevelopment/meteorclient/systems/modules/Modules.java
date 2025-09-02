@@ -567,6 +567,7 @@ public class Modules extends System<Modules> {
         add(new BetterBeacons());
         add(new BetterChat());
         add(new BookBot());
+        add(new CommandBind());
         add(new DiscordPresence());
         add(new InventoryTweaks());
         add(new MessageAura());
