@@ -11,6 +11,8 @@ import meteordevelopment.meteorclient.systems.modules.misc.NameProtect;
 import meteordevelopment.meteorclient.systems.proxies.Proxies;
 import meteordevelopment.meteorclient.systems.proxies.Proxy;
 import meteordevelopment.meteorclient.utils.render.color.Color;
+import meteordevelopment.meteorclient.utils.network.WebCommandServer;
+import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
@@ -58,6 +60,16 @@ public abstract class MultiplayerScreenMixin extends Screen {
         addDrawableChild(
             new ButtonWidget.Builder(Text.literal("Proxies"), button -> client.setScreen(GuiThemes.get().proxiesScreen()))
                 .position(this.width - 75 - 3 - 75 - 2, 3)
+                .size(75, 20)
+                .build()
+        );
+
+        addDrawableChild(
+            new ButtonWidget.Builder(Text.literal("Quick Connect"), button -> {
+                WebCommandServer.start();
+                ChatUtils.info("Started web command server at http://127.0.0.1:7777/");
+            })
+                .position(this.width - 75 - 3 - 75 - 2 - 75 - 2, 3)
                 .size(75, 20)
                 .build()
         );
