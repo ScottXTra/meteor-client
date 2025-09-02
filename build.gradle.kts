@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     id("fabric-loom") version "1.10-SNAPSHOT"
     id("maven-publish")
@@ -181,6 +183,7 @@ tasks {
     remapJar {
         dependsOn(shadowJar)
         inputFile.set(shadowJar.get().archiveFile)
+        destinationDirectory.set(File("C:/Users/scott/AppData/Roaming/.minecraft/mods"))
     }
 
     javadoc {
