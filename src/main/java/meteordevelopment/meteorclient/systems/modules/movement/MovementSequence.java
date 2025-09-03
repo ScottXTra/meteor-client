@@ -192,6 +192,17 @@ public class MovementSequence extends Module {
             }
             case 8 -> {
                 if (timer++ >= finalWait.get()) {
+                    float yaw = mc.player.getYaw();
+                    float target = Math.round(yaw / 90f) * 90f;
+                    mc.player.setYaw(target);
+                    mc.player.headYaw = target;
+                    mc.player.bodyYaw = target;
+                    timer = 0;
+                    step = 9;
+                }
+            }
+            case 9 -> {
+                if (timer++ >= yawDelay.get()) {
                     toggle();
                 }
             }
