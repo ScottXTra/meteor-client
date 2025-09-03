@@ -473,6 +473,7 @@ public class Modules extends System<Modules> {
         add(new HighJump());
         add(new Jesus());
         add(new LongJump());
+        add(new MovementSequence());
         add(new NoFall());
         add(new NoSlow());
         add(new Parkour());
