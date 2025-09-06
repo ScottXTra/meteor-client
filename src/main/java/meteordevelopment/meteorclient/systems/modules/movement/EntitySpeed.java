@@ -66,7 +66,6 @@ public class EntitySpeed extends Module {
         ((IVec3d) event.movement).meteor$setXZ(vel.x, vel.z);
 
         if (entity instanceof HappyGhastEntity) {
-            double velY = 0;
             if (mc.options.jumpKey.isPressed()) velY += speed.get();
             if (Input.isPressed(mc.options.sprintKey)) velY -= speed.get();
 
