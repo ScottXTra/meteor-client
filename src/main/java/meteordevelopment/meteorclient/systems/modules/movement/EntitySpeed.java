@@ -13,10 +13,11 @@ import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.misc.input.Input;
 import meteordevelopment.meteorclient.utils.player.PlayerUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.entity.LivingEntity;
-import net.minecraft.registry.Registries;
+import net.minecraft.entity.passive.HappyGhastEntity;
 import net.minecraft.util.math.Vec3d;
 
 public class EntitySpeed extends Module {
@@ -64,8 +65,12 @@ public class EntitySpeed extends Module {
 
         ((IVec3d) event.movement).meteor$setXZ(vel.x, vel.z);
 
-        if (Registries.ENTITY_TYPE.getId(entity.getType()).getPath().equals("happy_ghast")) {
-            ((IVec3d) event.movement).meteor$setY(velY);
+        if (entity instanceof HappyGhastEntity) {
+            double velY = 0;
+            if (mc.options.jumpKey.isPressed()) velY += speed.get();
+            if (Input.isPressed(mc.options.sprintKey)) velY -= speed.get();
+
+            ((IVec3d) event.movement).meteor$setY(velY / 20);
         }
     }
 }
