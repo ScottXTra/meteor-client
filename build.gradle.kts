@@ -100,6 +100,7 @@ dependencies {
     library("io.netty:netty-handler-proxy:${properties["netty_version"] as String}") { isTransitive = false }
     library("io.netty:netty-codec-socks:${properties["netty_version"] as String}") { isTransitive = false }
     library("de.florianmichael:WaybackAuthLib:${properties["waybackauthlib_version"] as String}")
+    library("org.python:jython-standalone:${properties["jython_version"] as String}")
 
     // Launch sub project
     shadow(project(":launch"))

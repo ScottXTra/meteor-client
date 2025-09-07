@@ -581,5 +581,6 @@ public class Modules extends System<Modules> {
         add(new SoundBlocker());
         add(new Spam());
         add(new Swarm());
+        add(new PythonExample());
     }
 }
