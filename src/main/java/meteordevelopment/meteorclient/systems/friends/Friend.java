@@ -43,6 +43,10 @@ public class Friend implements ISerializable<Friend>, Comparable<Friend> {
         return name;
     }
 
+    public @Nullable UUID getId() {
+        return id;
+    }
+
     public PlayerHeadTexture getHead() {
         return headTexture != null ? headTexture : PlayerHeadUtils.STEVE_HEAD;
     }
@@ -81,12 +85,13 @@ public class Friend implements ISerializable<Friend>, Comparable<Friend> {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Friend friend = (Friend) o;
-        return Objects.equals(name, friend.name);
+        if (id != null && friend.id != null) return id.equals(friend.id);
+        return name.equalsIgnoreCase(friend.name);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name);
+        return id != null ? id.hashCode() : name.toLowerCase().hashCode();
     }
 
     @Override

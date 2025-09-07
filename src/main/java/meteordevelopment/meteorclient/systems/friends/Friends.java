@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 
 public class Friends extends System<Friends> implements Iterable<Friend> {
     private final List<Friend> friends = new ArrayList<>();
@@ -56,20 +57,26 @@ public class Friends extends System<Friends> implements Iterable<Friend> {
 
     public Friend get(String name) {
         for (Friend friend : friends) {
-            if (friend.name.equalsIgnoreCase(name)) {
-                return friend;
-            }
+            if (friend.name.equalsIgnoreCase(name)) return friend;
         }
+        return null;
+    }
 
+    public Friend get(UUID id) {
+        for (Friend friend : friends) {
+            if (friend.getId() != null && friend.getId().equals(id)) return friend;
+        }
         return null;
     }
 
     public Friend get(PlayerEntity player) {
-        return get(player.getName().getString());
+        Friend friend = get(player.getUuid());
+        return friend != null ? friend : get(player.getName().getString());
     }
 
     public Friend get(PlayerListEntry player) {
-        return get(player.getProfile().getName());
+        Friend friend = get(player.getProfile().getId());
+        return friend != null ? friend : get(player.getProfile().getName());
     }
 
     public boolean isFriend(PlayerEntity player) {
@@ -115,12 +122,15 @@ public class Friends extends System<Friends> implements Iterable<Friend> {
             if (!friendTag.contains("name")) continue;
 
             String name = friendTag.getString("name", "");
-            if (get(name) != null) continue;
-
             String uuid = friendTag.getString("id", "");
             Friend friend = !uuid.isBlank()
                 ? new Friend(name, UndashedUuid.fromStringLenient(uuid))
                 : new Friend(name);
+
+            if (friend.getId() != null) {
+                if (get(friend.getId()) != null) continue;
+            }
+            else if (get(name) != null) continue;
 
             friends.add(friend);
         }
