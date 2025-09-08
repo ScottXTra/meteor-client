@@ -1,6 +1,7 @@
 import sys
 import json
 import math
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -31,6 +32,7 @@ gamma = 0.9
 prev_state = None
 prev_action = None
 prev_distance = None
+last_reset_time = None
 
 actions = [
     "forward",
@@ -69,6 +71,10 @@ for line in sys.stdin:
         optimizer.step()
 
     if reset:
+        if last_reset_time is not None:
+            elapsed = time.time() - last_reset_time
+            print(f"Reached goal in {elapsed:.2f}s", file=sys.stderr, flush=True)
+        last_reset_time = time.time()
         prev_state = None
         prev_action = None
         prev_distance = None

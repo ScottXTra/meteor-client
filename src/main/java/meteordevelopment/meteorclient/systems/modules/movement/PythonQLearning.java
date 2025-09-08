@@ -22,6 +22,8 @@ public class PythonQLearning extends Module {
     private Thread debugThread;
     private Vec3d goal;
     private boolean goalChanged;
+    private Vec3d startPos;
+    private static final double MAX_GOAL_DIST = 200;
 
     public PythonQLearning() {
         super(Categories.Movement, "python-qlearning", "Moves the player using a Python Q-learning agent.");
@@ -50,6 +52,8 @@ public class PythonQLearning extends Module {
             toggle();
             return;
         }
+
+        if (mc.player != null) startPos = mc.player.getPos();
 
         thread = new Thread(this::loop, "python-qlearning-loop");
         thread.start();
@@ -131,6 +135,7 @@ public class PythonQLearning extends Module {
 
         goal = null;
         goalChanged = false;
+        startPos = null;
     }
 
     private void setGoal() {
@@ -147,7 +152,12 @@ public class PythonQLearning extends Module {
 
             int topY = mc.world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z);
             if (topY == playerY) {
-                goal = new Vec3d(x + 0.5, playerY, z + 0.5);
+                Vec3d newGoal = new Vec3d(x + 0.5, playerY, z + 0.5);
+                if (startPos != null && newGoal.squaredDistanceTo(startPos) > MAX_GOAL_DIST * MAX_GOAL_DIST) {
+                    Vec3d dir = newGoal.subtract(startPos).normalize().multiply(MAX_GOAL_DIST);
+                    newGoal = startPos.add(dir);
+                }
+                goal = newGoal;
                 goalChanged = true;
                 return;
             }
@@ -155,7 +165,12 @@ public class PythonQLearning extends Module {
 
         // Fallback if no matching Y level was found
         double angle = Math.random() * Math.PI * 2;
-        goal = new Vec3d(p.x + 12 * Math.cos(angle), playerY, p.z + 12 * Math.sin(angle));
+        Vec3d newGoal = new Vec3d(p.x + 12 * Math.cos(angle), playerY, p.z + 12 * Math.sin(angle));
+        if (startPos != null && newGoal.squaredDistanceTo(startPos) > MAX_GOAL_DIST * MAX_GOAL_DIST) {
+            Vec3d dir = newGoal.subtract(startPos).normalize().multiply(MAX_GOAL_DIST);
+            newGoal = startPos.add(dir);
+        }
+        goal = newGoal;
         goalChanged = true;
     }
 
