@@ -44,7 +44,7 @@ FAIL_PENALTY = -0.5
 PROGRESS_SCALE = 0.05      # (prev_dist - dist) * scale per step
 ORIENT_SCALE = 0.01        # small reward for reducing |yaw_diff|
 
-ACTIONS = [
+BASE_ACTIONS = [
     "forward",
     "back",
     "left",
@@ -52,9 +52,16 @@ ACTIONS = [
     "jump",
     "turn_left",
     "turn_right",
-    "none",
 ]
-NUM_ACTIONS = len(ACTIONS)
+NUM_BASE_ACTIONS = len(BASE_ACTIONS)
+NUM_ACTIONS = 1 << NUM_BASE_ACTIONS  # allow combinations of base actions (0 = none)
+
+def action_id_to_string(aid: int) -> str:
+    if aid == 0:
+        return "none"
+    return " ".join(
+        BASE_ACTIONS[i] for i in range(NUM_BASE_ACTIONS) if aid & (1 << i)
+    )
 
 def angle_wrap(a: float) -> float:
     # wrap to [-pi, pi]
@@ -286,7 +293,7 @@ for line in sys.stdin:
     epsilon = max(EPS_END, EPS_START - (EPS_START - EPS_END) * (global_step / EPS_DECAY_STEPS))
 
     action_id = choose_action(qnet, state_t, epsilon)
-    sys.stdout.write(ACTIONS[action_id] + "\n")
+    sys.stdout.write(action_id_to_string(action_id) + "\n")
     sys.stdout.flush()
 
     prev_state_vec = state_vec

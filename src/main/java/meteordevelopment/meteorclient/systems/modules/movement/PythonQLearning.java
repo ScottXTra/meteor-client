@@ -35,18 +35,18 @@ public class PythonQLearning extends Module {
     private int timeoutTicksForGoal;
 
     // Debug: rolling average of final distance from goal
-    private final double[] lastDistances = new double[20];
+    private final double[] lastDistances = new double[30];
     private int distCursor = 0;
     private int distCount = 0;
 
     // Action state
     private static final String DEFAULT_ACTION = "none";
-    private String lastAction = DEFAULT_ACTION;
+    private String[] lastActions = new String[] { DEFAULT_ACTION };
 
     // Navigation config
     private static final double MAX_GOAL_DIST = 200.0;
     private static final double REACH_THRESHOLD = 0.75; // horizontal (XZ) meters
-    private static final int MIN_TIMEOUT_TICKS = 30;    // 1.5s @ 20 tps
+    private static final int MIN_TIMEOUT_TICKS = 60;    // 1.5s @ 20 tps
     private static final int MAX_TIMEOUT_TICKS = 200;   // 10s @ 20 tps
     private static final float TURN_DEG_PER_TICK = 7.5f;
     private static final double GOAL_SAMPLE_RADIUS = 4.0; // small local hops
@@ -102,7 +102,7 @@ public class PythonQLearning extends Module {
         goalChanged = false;
         goalFailed = false;
         goalSucceeded = false;
-        lastAction = DEFAULT_ACTION;
+        lastActions = new String[] { DEFAULT_ACTION };
         ticks = 0;
     }
 
@@ -148,7 +148,7 @@ public class PythonQLearning extends Module {
         goalFailed = false;
         goalSucceeded = false;
         episodeStart = null;
-        lastAction = DEFAULT_ACTION;
+        lastActions = new String[] { DEFAULT_ACTION };
         ticks = 0;
     }
 
@@ -187,16 +187,16 @@ public class PythonQLearning extends Module {
             writer.write(msg);
             writer.flush();
 
-            // Non-blocking read: at most one action per tick
+            // Non-blocking read: at most one set of actions per tick
             if (reader.ready()) {
                 String line = reader.readLine();
                 if (line != null && !line.isEmpty()) {
-                    lastAction = line.trim();
+                    lastActions = line.trim().split("\\s+");
                 }
             }
 
             // Apply exactly once per tick
-            applyAction(lastAction);
+            applyActions(lastActions);
 
             // Success/timeout bookkeeping (horizontal distance only)
             Vec3d p2 = mc.player.getPos();
@@ -225,7 +225,7 @@ public class PythonQLearning extends Module {
         return dx * dx + dz * dz;
     }
 
-    private void applyAction(String action) {
+    private void applyActions(String[] actions) {
         // release all keys first
         mc.options.forwardKey.setPressed(false);
         mc.options.backKey.setPressed(false);
@@ -233,16 +233,18 @@ public class PythonQLearning extends Module {
         mc.options.rightKey.setPressed(false);
         mc.options.jumpKey.setPressed(false);
 
-        switch (action) {
-            case "forward" -> mc.options.forwardKey.setPressed(true);
-            case "back" -> mc.options.backKey.setPressed(true);
-            case "left" -> mc.options.leftKey.setPressed(true);
-            case "right" -> mc.options.rightKey.setPressed(true);
-            case "jump" -> mc.options.jumpKey.setPressed(true);
-            case "turn_left" -> mc.player.setYaw(mc.player.getYaw() + TURN_DEG_PER_TICK);
-            case "turn_right" -> mc.player.setYaw(mc.player.getYaw() - TURN_DEG_PER_TICK);
-            case "none" -> { /* do nothing */ }
-            default -> { /* unknown action: ignore */ }
+        for (String action : actions) {
+            switch (action) {
+                case "forward" -> mc.options.forwardKey.setPressed(true);
+                case "back" -> mc.options.backKey.setPressed(true);
+                case "left" -> mc.options.leftKey.setPressed(true);
+                case "right" -> mc.options.rightKey.setPressed(true);
+                case "jump" -> mc.options.jumpKey.setPressed(true);
+                case "turn_left" -> mc.player.setYaw(mc.player.getYaw() + TURN_DEG_PER_TICK);
+                case "turn_right" -> mc.player.setYaw(mc.player.getYaw() - TURN_DEG_PER_TICK);
+                case "none" -> { /* do nothing */ }
+                default -> { /* unknown action: ignore */ }
+            }
         }
     }
 
