@@ -47,7 +47,6 @@ else:
 
 prev_state = None
 prev_action = None
-prev_distance = None
 last_reset_time = None
 
 actions = [
@@ -81,7 +80,6 @@ for line in sys.stdin:
     dy = gy - py
     dz = gz - pz
     horiz_dist = math.sqrt(dx * dx + dz * dz)
-    distance = math.sqrt(horiz_dist * horiz_dist + dy * dy)
 
     desired_yaw = math.degrees(math.atan2(dz, dx))
     yaw_diff = ((desired_yaw - yaw + 180) % 360) - 180
@@ -91,7 +89,7 @@ for line in sys.stdin:
     state = torch.tensor([[dx / 100, dz / 100, yaw_diff / 180, pitch_diff / 180]], dtype=torch.float32, device=device)
 
     if prev_state is not None:
-        reward = prev_distance - distance - 0.01
+        reward = -0.01
         if reset:
             reward += 1.0
         target = net(prev_state).detach().clone()
@@ -110,7 +108,6 @@ for line in sys.stdin:
         last_reset_time = time.time()
         prev_state = None
         prev_action = None
-        prev_distance = None
         print(f"Updated goal: {gx:.2f}, {gy:.2f}, {gz:.2f}", file=sys.stderr, flush=True)
 
     if torch.rand(1).item() < epsilon:
@@ -124,6 +121,5 @@ for line in sys.stdin:
 
     prev_state = state
     prev_action = action
-    prev_distance = distance
     if epsilon > epsilon_min:
         epsilon *= epsilon_decay
