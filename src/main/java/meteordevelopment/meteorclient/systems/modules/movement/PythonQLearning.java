@@ -11,7 +11,9 @@ public class PythonQLearning extends Module {
     private Process process;
     private BufferedWriter writer;
     private BufferedReader reader;
+    private BufferedReader errReader;
     private Thread thread;
+    private Thread debugThread;
     private Vec3d goal;
     private boolean goalChanged;
 
@@ -36,6 +38,7 @@ public class PythonQLearning extends Module {
             process = new ProcessBuilder("python", temp.getAbsolutePath()).start();
             writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
             reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            errReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
         } catch (IOException e) {
             error("Failed to start Python: {}", e.getMessage());
             toggle();
@@ -44,6 +47,9 @@ public class PythonQLearning extends Module {
 
         thread = new Thread(this::loop, "python-qlearning-loop");
         thread.start();
+
+        debugThread = new Thread(this::readDebug, "python-qlearning-debug");
+        debugThread.start();
     }
 
     private void loop() {
@@ -97,6 +103,7 @@ public class PythonQLearning extends Module {
         mc.options.sprintKey.setPressed(false);
 
         if (thread != null) thread.interrupt();
+        if (debugThread != null) debugThread.interrupt();
         if (process != null) process.destroy();
     }
 
@@ -106,5 +113,16 @@ public class PythonQLearning extends Module {
         double angle = Math.random() * Math.PI * 2;
         goal = new Vec3d(p.x + 12 * Math.cos(angle), p.y, p.z + 12 * Math.sin(angle));
         goalChanged = true;
+    }
+
+    private void readDebug() {
+        try {
+            String line;
+            while ((line = errReader.readLine()) != null && !Thread.interrupted()) {
+                String msg = line;
+                mc.execute(() -> info(msg));
+            }
+        } catch (IOException ignored) {
+        }
     }
 }

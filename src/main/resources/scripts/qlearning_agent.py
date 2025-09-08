@@ -56,6 +56,7 @@ for line in sys.stdin:
     state = torch.tensor([[dx, dz, yaw, pitch]], dtype=torch.float32, device=device)
     distance = math.sqrt(dx * dx + dz * dz)
 
+    reward = None
     if prev_state is not None and not reset:
         reward = prev_distance - distance - 0.01
         target = net(prev_state).detach().clone()
@@ -77,6 +78,9 @@ for line in sys.stdin:
     else:
         with torch.no_grad():
             action = net(state).argmax().item()
+
+    debug_msg = f"State: {state.tolist()[0]}, Action: {actions[action]}, Reward: {reward}"
+    print(debug_msg, file=sys.stderr, flush=True)
 
     sys.stdout.write(actions[action] + "\n")
     sys.stdout.flush()
