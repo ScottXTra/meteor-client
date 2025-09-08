@@ -94,7 +94,7 @@ public class PythonQLearning extends Module {
                     setGoal();
                 } else {
                     ticks++;
-                    if (ticks >= 200) {
+                    if (ticks >= 20) {
                         goalFailed = true;
                         setGoal();
                     }
