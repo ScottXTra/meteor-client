@@ -34,6 +34,11 @@ public class PythonQLearning extends Module {
     private int ticks;
     private int timeoutTicksForGoal;
 
+    // Debug: rolling average of final distance from goal
+    private final double[] lastDistances = new double[20];
+    private int distCursor = 0;
+    private int distCount = 0;
+
     // Action state
     private static final String DEFAULT_ACTION = "none";
     private String lastAction = DEFAULT_ACTION;
@@ -204,11 +209,13 @@ public class PythonQLearning extends Module {
             double dist2 = horizontalDistSq(p2, goal);
             if (dist2 < REACH_THRESHOLD * REACH_THRESHOLD) {
                 goalSucceeded = true;
+                onEpisodeEnd(Math.sqrt(dist2));
                 setNewEpisodeAndGoal();
             } else {
                 ticks++;
                 if (ticks >= timeoutTicksForGoal) {
                     goalFailed = true;
+                    onEpisodeEnd(Math.sqrt(dist2));
                     setNewEpisodeAndGoal();
                 }
             }
@@ -243,6 +250,18 @@ public class PythonQLearning extends Module {
             case "none" -> { /* do nothing */ }
             default -> { /* unknown action: ignore */ }
         }
+    }
+
+    private void onEpisodeEnd(double finalDist) {
+        lastDistances[distCursor] = finalDist;
+        distCursor = (distCursor + 1) % lastDistances.length;
+        if (distCount < lastDistances.length) distCount++;
+
+        double sum = 0.0;
+        for (int i = 0; i < distCount; i++) sum += lastDistances[i];
+        double avg = sum / distCount;
+
+        info("Episode distance %.2f (avg %.2f)", finalDist, avg);
     }
 
     private void setNewEpisodeAndGoal() {
