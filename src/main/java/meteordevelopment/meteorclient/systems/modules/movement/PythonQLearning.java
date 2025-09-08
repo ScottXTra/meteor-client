@@ -3,6 +3,7 @@ package meteordevelopment.meteorclient.systems.modules.movement;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.math.MathHelper;
 
 import java.io.*;
 
@@ -77,6 +78,14 @@ public class PythonQLearning extends Module {
         mc.options.leftKey.setPressed(action.equals("left"));
         mc.options.rightKey.setPressed(action.equals("right"));
         mc.options.sprintKey.setPressed(action.equals("sprint-forward"));
+
+        float yaw = mc.player.getYaw();
+        float pitch = mc.player.getPitch();
+
+        if (action.equals("look-left")) mc.player.setYaw(yaw - 5);
+        else if (action.equals("look-right")) mc.player.setYaw(yaw + 5);
+        else if (action.equals("look-up")) mc.player.setPitch(MathHelper.clamp(pitch - 5, -90, 90));
+        else if (action.equals("look-down")) mc.player.setPitch(MathHelper.clamp(pitch + 5, -90, 90));
     }
 
     @Override

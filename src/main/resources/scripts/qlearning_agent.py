@@ -15,7 +15,7 @@ class DQN(nn.Module):
     def __init__(self):
         super().__init__()
         self.fc1 = nn.Linear(4, 64)
-        self.fc2 = nn.Linear(64, 5)
+        self.fc2 = nn.Linear(64, 9)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -32,7 +32,17 @@ prev_state = None
 prev_action = None
 prev_distance = None
 
-actions = ["forward", "back", "left", "right", "sprint-forward"]
+actions = [
+    "forward",
+    "back",
+    "left",
+    "right",
+    "sprint-forward",
+    "look-left",
+    "look-right",
+    "look-up",
+    "look-down",
+]
 
 for line in sys.stdin:
     data = json.loads(line)
@@ -63,7 +73,7 @@ for line in sys.stdin:
         prev_distance = None
 
     if torch.rand(1).item() < epsilon:
-        action = torch.randint(0, 5, (1,)).item()
+        action = torch.randint(0, len(actions), (1,)).item()
     else:
         with torch.no_grad():
             action = net(state).argmax().item()
