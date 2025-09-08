@@ -72,15 +72,13 @@ for line in sys.stdin:
         prev_state = None
         prev_action = None
         prev_distance = None
+        print(f"Updated goal: {gx:.2f}, {gy:.2f}, {gz:.2f}", file=sys.stderr, flush=True)
 
     if torch.rand(1).item() < epsilon:
         action = torch.randint(0, len(actions), (1,)).item()
     else:
         with torch.no_grad():
             action = net(state).argmax().item()
-
-    debug_msg = f"State: {state.tolist()[0]}, Action: {actions[action]}, Reward: {reward}"
-    print(debug_msg, file=sys.stderr, flush=True)
 
     sys.stdout.write(actions[action] + "\n")
     sys.stdout.flush()

@@ -1,9 +1,14 @@
 package meteordevelopment.meteorclient.systems.modules.movement;
 
+import meteordevelopment.meteorclient.events.render.Render3DEvent;
+import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
-import net.minecraft.util.math.Vec3d;
+import meteordevelopment.meteorclient.utils.render.RenderUtils;
+import meteordevelopment.meteorclient.utils.render.color.Color;
+import meteordevelopment.orbit.EventHandler;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Vec3d;
 
 import java.io.*;
 
@@ -113,6 +118,13 @@ public class PythonQLearning extends Module {
         double angle = Math.random() * Math.PI * 2;
         goal = new Vec3d(p.x + 12 * Math.cos(angle), p.y, p.z + 12 * Math.sin(angle));
         goalChanged = true;
+    }
+
+    @EventHandler
+    private void onRender(Render3DEvent event) {
+        if (goal == null) return;
+        event.renderer.box(goal.x - 0.5, goal.y, goal.z - 0.5, goal.x + 0.5, goal.y + 2, goal.z + 0.5, Color.RED, Color.RED, ShapeMode.Lines, 0);
+        event.renderer.line(RenderUtils.center.x, RenderUtils.center.y, RenderUtils.center.z, goal.x, goal.y, goal.z, Color.GREEN);
     }
 
     private void readDebug() {
