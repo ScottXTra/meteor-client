@@ -163,19 +163,16 @@ public class PythonQLearning extends Module {
         try {
             if (goal == null) setNewEpisodeAndGoal();
 
-            // Compose one observation per tick
+            // Compose one observation per tick (start-relative)
             Vec3d p = mc.player.getPos();
+            Vec3d rel = p.subtract(episodeStart); // player relative to episode start
             float yaw = mc.player.getYaw();
             float pitch = mc.player.getPitch();
 
             String msg = String.format(
-                "{\"player\":{\"x\":%f,\"y\":%f,\"z\":%f,\"yaw\":%f,\"pitch\":%f},"
-                    + "\"start\":{\"x\":%f,\"y\":%f,\"z\":%f},"
-                    + "\"goal\":{\"x\":%f,\"y\":%f,\"z\":%f},"
+                "{\"player_rel\":{\"dx\":%f,\"dz\":%f,\"yaw\":%f,\"pitch\":%f},"
                     + "\"goal_rel\":{\"dx\":%f,\"dz\":%f}%s%s%s}\n",
-                p.x, p.y, p.z, yaw, pitch,
-                episodeStart.x, episodeStart.y, episodeStart.z,
-                goal.x, goal.y, goal.z,
+                rel.x, rel.z, yaw, pitch,
                 goalRel.x, goalRel.z,
                 goalChanged ? ",\"reset\":true" : "",
                 goalFailed ? ",\"fail\":true" : "",
@@ -190,15 +187,12 @@ public class PythonQLearning extends Module {
             writer.write(msg);
             writer.flush();
 
-            // Non-blocking read: consume the latest available action for this tick
-            String actionStr = null;
-            while (reader.ready()) {
+            // Non-blocking read: at most one action per tick
+            if (reader.ready()) {
                 String line = reader.readLine();
-                if (line == null) break;
-                actionStr = line.trim();
-            }
-            if (actionStr != null && !actionStr.isEmpty()) {
-                lastAction = actionStr;
+                if (line != null && !line.isEmpty()) {
+                    lastAction = line.trim();
+                }
             }
 
             // Apply exactly once per tick

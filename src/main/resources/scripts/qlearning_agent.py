@@ -1,6 +1,7 @@
-# PYTHON BACKEND (qlearning_agent.py) — drop-in replacement
+# PYTHON BACKEND (qlearning_agent.py)
 # DQN with replay buffer, target network, and dense rewards.
-# Updated to support start-relative goals (goal_rel) and one action per input line (tick).
+# Expects start-relative player and goal coordinates (so the bot begins at 0,0) and
+# processes exactly one observation / action per game tick.
 
 import sys
 import json
@@ -210,18 +211,14 @@ for line in sys.stdin:
     success = bool(data.get("success", False))
     fail = bool(data.get("fail", False))
 
-    # Player pose
-    px = float(data["player"]["x"])
-    pz = float(data["player"]["z"])
-    yaw = float(data["player"]["yaw"])
+    # Player pose (relative to episode start)
+    px = float(data["player_rel"]["dx"])
+    pz = float(data["player_rel"]["dz"])
+    yaw = float(data["player_rel"]["yaw"])
 
-    # Determine absolute goal from start-relative coords when present
-    if "goal_rel" in data and "start" in data:
-        gx = float(data["start"]["x"]) + float(data["goal_rel"]["dx"])
-        gz = float(data["start"]["z"]) + float(data["goal_rel"]["dz"])
-    else:
-        gx = float(data["goal"]["x"])
-        gz = float(data["goal"]["z"])
+    # Goal relative to episode start
+    gx = float(data["goal_rel"]["dx"])
+    gz = float(data["goal_rel"]["dz"])
 
     state_vec, dist, yaw_abs = build_state(px, pz, yaw, gx, gz)
     state_t = torch.tensor([state_vec], dtype=torch.float32, device=device)
