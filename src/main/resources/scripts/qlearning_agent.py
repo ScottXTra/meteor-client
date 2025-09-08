@@ -1,7 +1,8 @@
-# PYTHON BACKEND (qlearning_agent.py)
-# DQN with replay buffer, target network, and dense rewards.
-# Expects start-relative player and goal coordinates (so the bot begins at 0,0) and
-# processes exactly one observation / action per game tick.
+# DQN with replay buffer and target network.
+# Reward is based ONLY on normalized distance-to-goal:
+#   - Per-step: r_step = -dist_norm
+#   - On episode end (reset): r += (1 - dist_norm)  # closer end-state => more reward
+# Inputs are normalized: dx,dz in [-1,1], orientation via cos/sin(yaw_diff).
 
 import sys
 import json
@@ -37,21 +38,17 @@ EPS_START = 1.0
 EPS_END = 0.05
 EPS_DECAY_STEPS = 50_000   # linear decay steps
 
-# Reward shaping (time pressure encourages speed)
-STEP_PENALTY = -0.005
-SUCCESS_BONUS = 1.0
-FAIL_PENALTY = -0.5
-PROGRESS_SCALE = 0.05      # (prev_dist - dist) * scale per step
-ORIENT_SCALE = 0.01        # small reward for reducing |yaw_diff|
+# Distance-only reward (all normalized to [0,1])
+def dist_to_norm(d: float) -> float:
+    return max(0.0, min(1.0, d / MAX_GOAL_DIST))
 
 BASE_ACTIONS = [
     "forward",
     "back",
     "left",
     "right",
-    "jump",
-    "turn_left",
-    "turn_right",
+    "look_left",
+    "look_right",
 ]
 NUM_BASE_ACTIONS = len(BASE_ACTIONS)
 NUM_ACTIONS = 1 << NUM_BASE_ACTIONS  # allow combinations of base actions (0 = none)
@@ -123,7 +120,7 @@ def build_state(px, pz, yaw_deg, gx, gz):
     dx = gx - px
     dz = gz - pz
 
-    # normalize distances
+    # normalize distances to [-1, 1] by clamping to MAX_GOAL_DIST
     dxn = max(-1.0, min(1.0, dx / MAX_GOAL_DIST))
     dzn = max(-1.0, min(1.0, dz / MAX_GOAL_DIST))
 
@@ -132,7 +129,8 @@ def build_state(px, pz, yaw_deg, gx, gz):
     yaw_rad = math.radians(yaw_deg)
     yaw_diff = angle_wrap(target_bearing - yaw_rad)
 
-    return [dxn, dzn, math.cos(yaw_diff), math.sin(yaw_diff)], math.hypot(dx, dz), abs(yaw_diff)
+    # state vector is already normalized: dxn/dzn in [-1,1], cos/sin in [-1,1]
+    return [dxn, dzn, math.cos(yaw_diff), math.sin(yaw_diff)], math.hypot(dx, dz)
 
 def choose_action(qnet, state_tensor, epsilon):
     if random.random() < epsilon:
@@ -185,7 +183,6 @@ else:
 prev_state_vec = None
 prev_action = None
 prev_dist = None
-prev_yaw_abs = None
 episode_return = 0.0
 episode_steps = 0
 episodes = 0
@@ -215,8 +212,8 @@ for line in sys.stdin:
         break
 
     reset = bool(data.get("reset", False))
-    success = bool(data.get("success", False))
-    fail = bool(data.get("fail", False))
+    success = bool(data.get("success", False))  # not used for reward; kept for logs
+    fail = bool(data.get("fail", False))        # not used for reward; kept for logs
 
     # Player pose (relative to episode start)
     px = float(data["player_rel"]["dx"])
@@ -227,24 +224,19 @@ for line in sys.stdin:
     gx = float(data["goal_rel"]["dx"])
     gz = float(data["goal_rel"]["dz"])
 
-    state_vec, dist, yaw_abs = build_state(px, pz, yaw, gx, gz)
+    state_vec, dist = build_state(px, pz, yaw, gx, gz)
+    dist_norm = dist_to_norm(dist)  # in [0, 1]
     state_t = torch.tensor([state_vec], dtype=torch.float32, device=device)
 
-    # ---------------- reward shaping for the transition that JUST happened ----------------
+    # ---------------- reward for the transition that JUST happened ----------------
     if prev_state_vec is not None and prev_action is not None and prev_dist is not None:
-        progress = (prev_dist - dist) * PROGRESS_SCALE
-        orient_improve = 0.0
-        if prev_yaw_abs is not None:
-            orient_improve = (prev_yaw_abs - yaw_abs) * ORIENT_SCALE
-
-        r = STEP_PENALTY + progress + orient_improve
+        # distance-only normalized reward
+        r = -dist_norm  # closer => less negative (better)
 
         done = False
         if reset:
-            if success:
-                r += SUCCESS_BONUS
-            elif fail:
-                r += FAIL_PENALTY
+            # terminal bonus: closer final distance yields more reward
+            r += (1.0 - dist_norm)
             done = True
 
         # Store transition in replay
@@ -276,7 +268,8 @@ for line in sys.stdin:
                 elapsed = time.time() - last_reset_time
             print(
                 f"Episode {episodes}: return={episode_return:.3f} steps={episode_steps} "
-                f"eps={epsilon:.3f} ({'SUCCESS' if success else 'FAIL' if fail else 'RESET'}) in {elapsed:.2f}s",
+                f"eps={epsilon:.3f} final_dist_norm={dist_norm:.3f} "
+                f"({'SUCCESS' if success else 'FAIL' if fail else 'RESET'}) in {elapsed:.2f}s",
                 file=sys.stderr,
                 flush=True,
             )
@@ -299,4 +292,3 @@ for line in sys.stdin:
     prev_state_vec = state_vec
     prev_action = action_id
     prev_dist = dist
-    prev_yaw_abs = yaw_abs

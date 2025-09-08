@@ -1,5 +1,3 @@
-// CLIENT MODULE (Java) — drop-in replacement
-
 package meteordevelopment.meteorclient.systems.modules.movement;
 
 import meteordevelopment.meteorclient.MeteorClient;
@@ -48,7 +46,7 @@ public class PythonQLearning extends Module {
     private static final double REACH_THRESHOLD = 0.75; // horizontal (XZ) meters
     private static final int MIN_TIMEOUT_TICKS = 60;    // 1.5s @ 20 tps
     private static final int MAX_TIMEOUT_TICKS = 200;   // 10s @ 20 tps
-    private static final float TURN_DEG_PER_TICK = 7.5f;
+    private static final float LOOK_DEG = 45.0f;
     private static final double GOAL_SAMPLE_RADIUS = 4.0; // small local hops
 
     private static final double FIXED_GOAL_Y = -60.0;
@@ -113,7 +111,6 @@ public class PythonQLearning extends Module {
         mc.options.backKey.setPressed(false);
         mc.options.leftKey.setPressed(false);
         mc.options.rightKey.setPressed(false);
-        mc.options.jumpKey.setPressed(false);
 
         // ask backend to save
         try {
@@ -231,7 +228,6 @@ public class PythonQLearning extends Module {
         mc.options.backKey.setPressed(false);
         mc.options.leftKey.setPressed(false);
         mc.options.rightKey.setPressed(false);
-        mc.options.jumpKey.setPressed(false);
 
         for (String action : actions) {
             switch (action) {
@@ -239,9 +235,8 @@ public class PythonQLearning extends Module {
                 case "back" -> mc.options.backKey.setPressed(true);
                 case "left" -> mc.options.leftKey.setPressed(true);
                 case "right" -> mc.options.rightKey.setPressed(true);
-                case "jump" -> mc.options.jumpKey.setPressed(true);
-                case "turn_left" -> mc.player.setYaw(mc.player.getYaw() + TURN_DEG_PER_TICK);
-                case "turn_right" -> mc.player.setYaw(mc.player.getYaw() - TURN_DEG_PER_TICK);
+                case "look_left" -> mc.player.setYaw(mc.player.getYaw() + LOOK_DEG);
+                case "look_right" -> mc.player.setYaw(mc.player.getYaw() - LOOK_DEG);
                 case "none" -> { /* do nothing */ }
                 default -> { /* unknown action: ignore */ }
             }
@@ -266,18 +261,27 @@ public class PythonQLearning extends Module {
         // New episode starts from current player position
         episodeStart = mc.player.getPos();
 
-        // Sample a small relative target in XZ (within GOAL_SAMPLE_RADIUS), then clamp to MAX_GOAL_DIST
+        // Pick a random angle (0 - 360°)
         double angle = Math.random() * Math.PI * 2.0;
-        double dx = GOAL_SAMPLE_RADIUS * Math.cos(angle);
-        double dz = GOAL_SAMPLE_RADIUS * Math.sin(angle);
 
+        // Pick a random distance between 1 and 5 blocks
+        double distance = 1.0 + (Math.random() * 4.0);
+
+        // Convert polar → Cartesian
+        double dx = distance * Math.cos(angle);
+        double dz = distance * Math.sin(angle);
+
+        // Relative goal
         Vec3d rel = new Vec3d(dx, 0.0, dz);
+
+        // Clamp to max allowed distance (safety)
         double relLenSq = rel.x * rel.x + rel.z * rel.z;
         if (relLenSq > MAX_GOAL_DIST * MAX_GOAL_DIST) {
             double len = Math.sqrt(relLenSq);
             rel = new Vec3d(rel.x / len * MAX_GOAL_DIST, 0.0, rel.z / len * MAX_GOAL_DIST);
         }
 
+        // Save goal
         goalRel = rel;
         goal = new Vec3d(episodeStart.x + rel.x, FIXED_GOAL_Y, episodeStart.z + rel.z);
 
