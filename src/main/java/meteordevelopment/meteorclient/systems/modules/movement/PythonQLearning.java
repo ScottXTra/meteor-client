@@ -109,19 +109,10 @@ public class PythonQLearning extends Module {
     }
 
     private void applyAction(String action) {
-        mc.options.forwardKey.setPressed(action.equals("forward") || action.equals("sprint-forward"));
+        mc.options.forwardKey.setPressed(action.equals("forward"));
         mc.options.backKey.setPressed(action.equals("back"));
         mc.options.leftKey.setPressed(action.equals("left"));
         mc.options.rightKey.setPressed(action.equals("right"));
-        mc.options.sprintKey.setPressed(action.equals("sprint-forward"));
-
-        float yaw = mc.player.getYaw();
-        float pitch = mc.player.getPitch();
-
-        if (action.equals("look-left")) mc.player.setYaw(yaw - 5);
-        else if (action.equals("look-right")) mc.player.setYaw(yaw + 5);
-        else if (action.equals("look-up")) mc.player.setPitch(MathHelper.clamp(pitch - 5, -90, 90));
-        else if (action.equals("look-down")) mc.player.setPitch(MathHelper.clamp(pitch + 5, -90, 90));
     }
 
     @Override
@@ -130,7 +121,6 @@ public class PythonQLearning extends Module {
         mc.options.backKey.setPressed(false);
         mc.options.leftKey.setPressed(false);
         mc.options.rightKey.setPressed(false);
-        mc.options.sprintKey.setPressed(false);
 
         if (thread != null) {
             thread.interrupt();

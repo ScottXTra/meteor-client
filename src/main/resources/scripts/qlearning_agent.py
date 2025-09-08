@@ -1,6 +1,5 @@
 import sys
 import json
-import math
 import time
 import os
 import torch
@@ -18,9 +17,9 @@ checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "qlearning_checkpoint.pt
 class DQN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(4, 64)
+        self.fc1 = nn.Linear(2, 64)
         self.fc2 = nn.Linear(64, 64)
-        self.fc3 = nn.Linear(64, 9)
+        self.fc3 = nn.Linear(64, 4)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -37,11 +36,14 @@ epsilon_decay = 0.995
 gamma = 0.95
 
 if os.path.exists(checkpoint_path):
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    net.load_state_dict(checkpoint["model"])
-    optimizer.load_state_dict(checkpoint["optimizer"])
-    epsilon = checkpoint.get("epsilon", epsilon)
-    print(f"Loaded checkpoint from {checkpoint_path}", file=sys.stderr, flush=True)
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        net.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        epsilon = checkpoint.get("epsilon", epsilon)
+        print(f"Loaded checkpoint from {checkpoint_path}", file=sys.stderr, flush=True)
+    except Exception:
+        print(f"Failed to load checkpoint from {checkpoint_path}, starting fresh", file=sys.stderr, flush=True)
 else:
     print("No checkpoint found, starting fresh", file=sys.stderr, flush=True)
 
@@ -54,11 +56,6 @@ actions = [
     "back",
     "left",
     "right",
-    "sprint-forward",
-    "look-left",
-    "look-right",
-    "look-up",
-    "look-down",
 ]
 
 for line in sys.stdin:
@@ -73,20 +70,12 @@ for line in sys.stdin:
         break
     reset = data.get("reset", False)
     px, py, pz = data["player"]["x"], data["player"]["y"], data["player"]["z"]
-    yaw, pitch = data["player"]["yaw"], data["player"]["pitch"]
     gx, gy, gz = data["goal"]["x"], data["goal"]["y"], data["goal"]["z"]
 
     dx = gx - px
-    dy = gy - py
     dz = gz - pz
-    horiz_dist = math.sqrt(dx * dx + dz * dz)
 
-    desired_yaw = math.degrees(math.atan2(dz, dx))
-    yaw_diff = ((desired_yaw - yaw + 180) % 360) - 180
-    desired_pitch = -math.degrees(math.atan2(dy, horiz_dist)) if horiz_dist > 0 else 0.0
-    pitch_diff = desired_pitch - pitch
-
-    state = torch.tensor([[dx / 100, dz / 100, yaw_diff / 180, pitch_diff / 180]], dtype=torch.float32, device=device)
+    state = torch.tensor([[dx / 100, dz / 100]], dtype=torch.float32, device=device)
 
     if prev_state is not None:
         reward = -0.01
