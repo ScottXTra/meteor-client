@@ -101,9 +101,11 @@ public class PythonQLearning extends Module {
                 }
             }
         } catch (Exception e) {
-            error("Python communication error: {}", e.getMessage());
+            if (isActive()) error("Python communication error: {}", e.getMessage());
         }
-        mc.execute(this::toggle);
+        mc.execute(() -> {
+            if (isActive()) toggle();
+        });
     }
 
     private void applyAction(String action) {
