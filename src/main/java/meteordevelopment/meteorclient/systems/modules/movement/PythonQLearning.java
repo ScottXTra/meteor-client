@@ -9,6 +9,7 @@ import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.Heightmap;
 
 import java.io.*;
 
@@ -107,16 +108,54 @@ public class PythonQLearning extends Module {
         mc.options.rightKey.setPressed(false);
         mc.options.sprintKey.setPressed(false);
 
-        if (thread != null) thread.interrupt();
-        if (debugThread != null) debugThread.interrupt();
-        if (process != null) process.destroy();
+        if (thread != null) {
+            thread.interrupt();
+            thread = null;
+        }
+        if (debugThread != null) {
+            debugThread.interrupt();
+            debugThread = null;
+        }
+
+        try {
+            if (writer != null) writer.close();
+            if (reader != null) reader.close();
+            if (errReader != null) errReader.close();
+        } catch (IOException ignored) {
+        }
+
+        if (process != null) {
+            process.destroyForcibly();
+            process = null;
+        }
+
+        goal = null;
+        goalChanged = false;
     }
 
     private void setGoal() {
-        if (mc.player == null) return;
+        if (mc.player == null || mc.world == null) return;
+
         Vec3d p = mc.player.getPos();
+        int playerY = mc.player.getBlockY();
+
+        // Try to find a random position at the same Y level as the player
+        for (int i = 0; i < 50; i++) {
+            double angle = Math.random() * Math.PI * 2;
+            int x = MathHelper.floor(p.x + 12 * Math.cos(angle));
+            int z = MathHelper.floor(p.z + 12 * Math.sin(angle));
+
+            int topY = mc.world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z);
+            if (topY == playerY) {
+                goal = new Vec3d(x + 0.5, playerY, z + 0.5);
+                goalChanged = true;
+                return;
+            }
+        }
+
+        // Fallback if no matching Y level was found
         double angle = Math.random() * Math.PI * 2;
-        goal = new Vec3d(p.x + 12 * Math.cos(angle), p.y, p.z + 12 * Math.sin(angle));
+        goal = new Vec3d(p.x + 12 * Math.cos(angle), playerY, p.z + 12 * Math.sin(angle));
         goalChanged = true;
     }
 
