@@ -14,8 +14,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class DQN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(2, 64)
-        self.fc2 = nn.Linear(64, 4)
+        self.fc1 = nn.Linear(4, 64)
+        self.fc2 = nn.Linear(64, 5)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -32,20 +32,22 @@ prev_state = None
 prev_action = None
 prev_distance = None
 
-actions = ["forward", "back", "left", "right"]
+actions = ["forward", "back", "left", "right", "sprint-forward"]
 
 for line in sys.stdin:
     data = json.loads(line)
+    reset = data.get("reset", False)
     px, py, pz = data["player"]["x"], data["player"]["y"], data["player"]["z"]
+    yaw, pitch = data["player"]["yaw"], data["player"]["pitch"]
     gx, gy, gz = data["goal"]["x"], data["goal"]["y"], data["goal"]["z"]
 
     dx = gx - px
     dz = gz - pz
-    state = torch.tensor([[dx, dz]], dtype=torch.float32, device=device)
+    state = torch.tensor([[dx, dz, yaw, pitch]], dtype=torch.float32, device=device)
     distance = math.sqrt(dx * dx + dz * dz)
 
-    if prev_state is not None:
-        reward = prev_distance - distance
+    if prev_state is not None and not reset:
+        reward = prev_distance - distance - 0.01
         target = net(prev_state).detach().clone()
         next_q = net(state).max().detach()
         target[0, prev_action] = reward + gamma * next_q
@@ -55,8 +57,13 @@ for line in sys.stdin:
         loss.backward()
         optimizer.step()
 
+    if reset:
+        prev_state = None
+        prev_action = None
+        prev_distance = None
+
     if torch.rand(1).item() < epsilon:
-        action = torch.randint(0, 4, (1,)).item()
+        action = torch.randint(0, 5, (1,)).item()
     else:
         with torch.no_grad():
             action = net(state).argmax().item()

@@ -2,38 +2,17 @@ package meteordevelopment.meteorclient.systems.modules.movement;
 
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
-import meteordevelopment.meteorclient.settings.DoubleSetting;
-import meteordevelopment.meteorclient.settings.Setting;
-import meteordevelopment.meteorclient.settings.SettingGroup;
 import net.minecraft.util.math.Vec3d;
 
 import java.io.*;
 
 public class PythonQLearning extends Module {
-    private final SettingGroup sgGeneral = settings.getDefaultGroup();
-
-    private final Setting<Double> goalX = sgGeneral.add(new DoubleSetting.Builder()
-        .name("goal-x")
-        .description("Goal X coordinate")
-        .defaultValue(0)
-        .build());
-
-    private final Setting<Double> goalY = sgGeneral.add(new DoubleSetting.Builder()
-        .name("goal-y")
-        .description("Goal Y coordinate")
-        .defaultValue(0)
-        .build());
-
-    private final Setting<Double> goalZ = sgGeneral.add(new DoubleSetting.Builder()
-        .name("goal-z")
-        .description("Goal Z coordinate")
-        .defaultValue(0)
-        .build());
-
     private Process process;
     private BufferedWriter writer;
     private BufferedReader reader;
     private Thread thread;
+    private Vec3d goal;
+    private boolean goalChanged;
 
     public PythonQLearning() {
         super(Categories.Movement, "python-qlearning", "Moves the player using a Python Q-learning agent.");
@@ -69,9 +48,12 @@ public class PythonQLearning extends Module {
     private void loop() {
         try {
             while (isActive() && mc.player != null && !Thread.interrupted()) {
+                if (goal == null) setGoal();
+
                 Vec3d p = mc.player.getPos();
-                String msg = String.format("{\"player\":{\"x\":%f,\"y\":%f,\"z\":%f},\"goal\":{\"x\":%f,\"y\":%f,\"z\":%f}}\n",
-                    p.x, p.y, p.z, goalX.get(), goalY.get(), goalZ.get());
+                String msg = String.format("{\"player\":{\"x\":%f,\"y\":%f,\"z\":%f,\"yaw\":%f,\"pitch\":%f},\"goal\":{\"x\":%f,\"y\":%f,\"z\":%f}%s}\n",
+                    p.x, p.y, p.z, mc.player.getYaw(), mc.player.getPitch(), goal.x, goal.y, goal.z, goalChanged ? ",\"reset\":true" : "");
+                goalChanged = false;
                 writer.write(msg);
                 writer.flush();
 
@@ -79,6 +61,9 @@ public class PythonQLearning extends Module {
                 if (action == null) break;
                 mc.execute(() -> applyAction(action.trim()));
                 Thread.sleep(50);
+
+                Vec3d p2 = mc.player.getPos();
+                if (p2.squaredDistanceTo(goal) < 1) setGoal();
             }
         } catch (Exception e) {
             error("Python communication error: {}", e.getMessage());
@@ -87,10 +72,11 @@ public class PythonQLearning extends Module {
     }
 
     private void applyAction(String action) {
-        mc.options.forwardKey.setPressed(action.equals("forward"));
+        mc.options.forwardKey.setPressed(action.equals("forward") || action.equals("sprint-forward"));
         mc.options.backKey.setPressed(action.equals("back"));
         mc.options.leftKey.setPressed(action.equals("left"));
         mc.options.rightKey.setPressed(action.equals("right"));
+        mc.options.sprintKey.setPressed(action.equals("sprint-forward"));
     }
 
     @Override
@@ -99,8 +85,17 @@ public class PythonQLearning extends Module {
         mc.options.backKey.setPressed(false);
         mc.options.leftKey.setPressed(false);
         mc.options.rightKey.setPressed(false);
+        mc.options.sprintKey.setPressed(false);
 
         if (thread != null) thread.interrupt();
         if (process != null) process.destroy();
+    }
+
+    private void setGoal() {
+        if (mc.player == null) return;
+        Vec3d p = mc.player.getPos();
+        double angle = Math.random() * Math.PI * 2;
+        goal = new Vec3d(p.x + 12 * Math.cos(angle), p.y, p.z + 12 * Math.sin(angle));
+        goalChanged = true;
     }
 }
