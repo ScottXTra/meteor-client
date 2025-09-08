@@ -2,6 +2,7 @@ import sys
 import json
 import math
 import time
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,6 +12,8 @@ import torch.optim as optim
 # Example: pip install torch --index-url https://download.pytorch.org/whl/cu118
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "qlearning_checkpoint.pt"
 
 class DQN(nn.Module):
     def __init__(self):
@@ -33,6 +36,15 @@ epsilon_min = 0.05
 epsilon_decay = 0.995
 gamma = 0.95
 
+if os.path.exists(checkpoint_path):
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    net.load_state_dict(checkpoint["model"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    epsilon = checkpoint.get("epsilon", epsilon)
+    print(f"Loaded checkpoint from {checkpoint_path}", file=sys.stderr, flush=True)
+else:
+    print("No checkpoint found, starting fresh", file=sys.stderr, flush=True)
+
 prev_state = None
 prev_action = None
 prev_distance = None
@@ -52,6 +64,14 @@ actions = [
 
 for line in sys.stdin:
     data = json.loads(line)
+    if data.get("save"):
+        torch.save({
+            "model": net.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "epsilon": epsilon,
+        }, checkpoint_path)
+        print(f"Saved checkpoint to {checkpoint_path}", file=sys.stderr, flush=True)
+        break
     reset = data.get("reset", False)
     px, py, pz = data["player"]["x"], data["player"]["y"], data["player"]["z"]
     yaw, pitch = data["player"]["yaw"], data["player"]["pitch"]

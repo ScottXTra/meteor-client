@@ -1,5 +1,6 @@
 package meteordevelopment.meteorclient.systems.modules.movement;
 
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.systems.modules.Categories;
@@ -12,6 +13,7 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.Heightmap;
 
 import java.io.*;
+import java.util.concurrent.TimeUnit;
 
 public class PythonQLearning extends Module {
     private Process process;
@@ -26,6 +28,7 @@ public class PythonQLearning extends Module {
     private int ticks;
     private Vec3d startPos;
     private static final double MAX_GOAL_DIST = 200;
+    private File checkpointFile;
 
     public PythonQLearning() {
         super(Categories.Movement, "python-qlearning", "Moves the player using a Python Q-learning agent.");
@@ -45,7 +48,8 @@ public class PythonQLearning extends Module {
                 script.transferTo(out);
             }
             temp.deleteOnExit();
-            process = new ProcessBuilder("python", temp.getAbsolutePath()).start();
+            checkpointFile = new File(MeteorClient.FOLDER, "python_qlearning_checkpoint.pt");
+            process = new ProcessBuilder("python", temp.getAbsolutePath(), checkpointFile.getAbsolutePath()).start();
             writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
             reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             errReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
@@ -136,6 +140,14 @@ public class PythonQLearning extends Module {
         }
 
         try {
+            if (writer != null) {
+                writer.write("{\"save\":true}\n");
+                writer.flush();
+            }
+        } catch (IOException ignored) {
+        }
+
+        try {
             if (writer != null) writer.close();
             if (reader != null) reader.close();
             if (errReader != null) errReader.close();
@@ -143,6 +155,10 @@ public class PythonQLearning extends Module {
         }
 
         if (process != null) {
+            try {
+                process.waitFor(1, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+            }
             process.destroyForcibly();
             process = null;
         }
