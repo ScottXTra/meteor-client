@@ -22,6 +22,8 @@ public class PythonQLearning extends Module {
     private Thread debugThread;
     private Vec3d goal;
     private boolean goalChanged;
+    private boolean goalFailed;
+    private int ticks;
     private Vec3d startPos;
     private static final double MAX_GOAL_DIST = 200;
 
@@ -68,9 +70,12 @@ public class PythonQLearning extends Module {
                 if (goal == null) setGoal();
 
                 Vec3d p = mc.player.getPos();
-                String msg = String.format("{\"player\":{\"x\":%f,\"y\":%f,\"z\":%f,\"yaw\":%f,\"pitch\":%f},\"goal\":{\"x\":%f,\"y\":%f,\"z\":%f}%s}\n",
-                    p.x, p.y, p.z, mc.player.getYaw(), mc.player.getPitch(), goal.x, goal.y, goal.z, goalChanged ? ",\"reset\":true" : "");
+                String msg = String.format("{\"player\":{\"x\":%f,\"y\":%f,\"z\":%f,\"yaw\":%f,\"pitch\":%f},\"goal\":{\"x\":%f,\"y\":%f,\"z\":%f}%s%s}\n",
+                    p.x, p.y, p.z, mc.player.getYaw(), mc.player.getPitch(), goal.x, goal.y, goal.z,
+                    goalChanged ? ",\"reset\":true" : "",
+                    goalFailed ? ",\"fail\":true" : "");
                 goalChanged = false;
+                goalFailed = false;
                 writer.write(msg);
                 writer.flush();
 
@@ -80,7 +85,16 @@ public class PythonQLearning extends Module {
                 Thread.sleep(50);
 
                 Vec3d p2 = mc.player.getPos();
-                if (p2.squaredDistanceTo(goal) < 1) setGoal();
+                if (p2.squaredDistanceTo(goal) < 1) {
+                    goalFailed = false;
+                    setGoal();
+                } else {
+                    ticks++;
+                    if (ticks >= 200) {
+                        goalFailed = true;
+                        setGoal();
+                    }
+                }
             }
         } catch (Exception e) {
             error("Python communication error: {}", e.getMessage());
@@ -144,11 +158,11 @@ public class PythonQLearning extends Module {
         Vec3d p = mc.player.getPos();
         int playerY = mc.player.getBlockY();
 
-        // Try to find a random position at the same Y level as the player
+        // Try to find a random position at the same Y level as the player within 4 blocks
         for (int i = 0; i < 50; i++) {
             double angle = Math.random() * Math.PI * 2;
-            int x = MathHelper.floor(p.x + 12 * Math.cos(angle));
-            int z = MathHelper.floor(p.z + 12 * Math.sin(angle));
+            int x = MathHelper.floor(p.x + 4 * Math.cos(angle));
+            int z = MathHelper.floor(p.z + 4 * Math.sin(angle));
 
             int topY = mc.world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z);
             if (topY == playerY) {
@@ -159,19 +173,21 @@ public class PythonQLearning extends Module {
                 }
                 goal = newGoal;
                 goalChanged = true;
+                ticks = 0;
                 return;
             }
         }
 
         // Fallback if no matching Y level was found
         double angle = Math.random() * Math.PI * 2;
-        Vec3d newGoal = new Vec3d(p.x + 12 * Math.cos(angle), playerY, p.z + 12 * Math.sin(angle));
+        Vec3d newGoal = new Vec3d(p.x + 4 * Math.cos(angle), playerY, p.z + 4 * Math.sin(angle));
         if (startPos != null && newGoal.squaredDistanceTo(startPos) > MAX_GOAL_DIST * MAX_GOAL_DIST) {
             Vec3d dir = newGoal.subtract(startPos).normalize().multiply(MAX_GOAL_DIST);
             newGoal = startPos.add(dir);
         }
         goal = newGoal;
         goalChanged = true;
+        ticks = 0;
     }
 
     @EventHandler
