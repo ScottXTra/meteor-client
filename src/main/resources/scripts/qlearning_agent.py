@@ -16,18 +16,22 @@ class DQN(nn.Module):
     def __init__(self):
         super().__init__()
         self.fc1 = nn.Linear(4, 64)
-        self.fc2 = nn.Linear(64, 9)
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, 9)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
-        return self.fc2(x)
+        x = torch.relu(self.fc2(x))
+        return self.fc3(x)
 
 net = DQN().to(device)
-optimizer = optim.Adam(net.parameters(), lr=0.01)
+optimizer = optim.Adam(net.parameters(), lr=0.001)
 criterion = nn.MSELoss()
 
-epsilon = 0.2
-gamma = 0.9
+epsilon = 1.0
+epsilon_min = 0.05
+epsilon_decay = 0.995
+gamma = 0.95
 
 prev_state = None
 prev_action = None
@@ -54,15 +58,24 @@ for line in sys.stdin:
     gx, gy, gz = data["goal"]["x"], data["goal"]["y"], data["goal"]["z"]
 
     dx = gx - px
+    dy = gy - py
     dz = gz - pz
-    state = torch.tensor([[dx, dz, yaw, pitch]], dtype=torch.float32, device=device)
-    distance = math.sqrt(dx * dx + dz * dz)
+    horiz_dist = math.sqrt(dx * dx + dz * dz)
+    distance = math.sqrt(horiz_dist * horiz_dist + dy * dy)
 
-    reward = None
-    if prev_state is not None and not reset:
+    desired_yaw = math.degrees(math.atan2(dz, dx))
+    yaw_diff = ((desired_yaw - yaw + 180) % 360) - 180
+    desired_pitch = -math.degrees(math.atan2(dy, horiz_dist)) if horiz_dist > 0 else 0.0
+    pitch_diff = desired_pitch - pitch
+
+    state = torch.tensor([[dx / 100, dz / 100, yaw_diff / 180, pitch_diff / 180]], dtype=torch.float32, device=device)
+
+    if prev_state is not None:
         reward = prev_distance - distance - 0.01
+        if reset:
+            reward += 1.0
         target = net(prev_state).detach().clone()
-        next_q = net(state).max().detach()
+        next_q = 0.0 if reset else net(state).max().detach()
         target[0, prev_action] = reward + gamma * next_q
         output = net(prev_state)
         loss = criterion(output, target)
@@ -92,3 +105,5 @@ for line in sys.stdin:
     prev_state = state
     prev_action = action
     prev_distance = distance
+    if epsilon > epsilon_min:
+        epsilon *= epsilon_decay
