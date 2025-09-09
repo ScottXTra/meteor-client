@@ -18,202 +18,305 @@ try:
 except Exception:
     plt = None
 
-STATE_DIM = 5  # dx, dz, vx, vz, yaw
+# -----------------------------
+# Config
+# -----------------------------
+STATE_DIM = 5   # dx, dz, vx, vz, sin(yaw_err)
 ACTION_DIM = 8  # forward, back, left, right, idle, jump, look_left, look_right
 CHECKPOINT_INTERVAL = 10
+PLOT_EVERY = 5  # plot every N episodes (set None to disable)
 
-class DQN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(STATE_DIM, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, ACTION_DIM)
-        )
+if torch:
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def forward(self, x):
-        return self.net(x)
 
+# -----------------------------
+# Networks
+# -----------------------------
+if torch:
+    class DQN(nn.Module):
+        """Dueling DQN head: V(s) + A(s,a) - mean(A)"""
+        def __init__(self):
+            super().__init__()
+            hidden = 128
+            self.features = nn.Sequential(
+                nn.Linear(STATE_DIM, hidden),
+                nn.ReLU(),
+            )
+            self.adv = nn.Sequential(
+                nn.Linear(hidden, hidden), nn.ReLU(),
+                nn.Linear(hidden, ACTION_DIM)
+            )
+            self.val = nn.Sequential(
+                nn.Linear(hidden, hidden), nn.ReLU(),
+                nn.Linear(hidden, 1)
+            )
+
+        def forward(self, x):
+            f = self.features(x)
+            a = self.adv(f)
+            v = self.val(f)
+            return v + a - a.mean(dim=1, keepdim=True)
+
+
+# -----------------------------
+# Agent
+# -----------------------------
 class Agent:
     def __init__(self):
-        self.epsilon = 1.0
-        self.epsilon_min = 0.1
-        self.epsilon_decay = 0.96
+        # Step-based epsilon schedule
+        self.epsilon_start = 1.0
+        self.epsilon_end = 0.1
+        self.epsilon_decay_steps = 50_000  # tune as needed
+        self.global_step = 0
+        self.eval_mode = False
+
         self.gamma = 0.99
-        self.batch_size = 64
-        self.memory = deque(maxlen=5000)
+        self.batch_size = 128
+        self.memory = deque(maxlen=50_000)
+        self.update_every = 4       # learn every N environment steps
+        self.replay_min = 1_000     # warmup before learning
+        self.tau = 0.005            # soft target update rate
+
         if torch:
-            self.model = DQN()
-            self.target_model = DQN()
+            self.model = DQN().to(DEVICE)
+            self.target_model = DQN().to(DEVICE)
             self.target_model.load_state_dict(self.model.state_dict())
             self.optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
-            self.loss_fn = nn.MSELoss()
+            self.loss_fn = nn.SmoothL1Loss()
             self.learn_step = 0
-            self.target_update = 100
+
+        # Episode bookkeeping
         self.last_state = None
         self.last_action = None
         self.last_distance = None
+        self.prev_yaw_err = None  # magnitude of yaw error (radians)
         self.start_distance = None
+
+    # --------- utils ---------
+    def current_epsilon(self):
+        if self.eval_mode:
+            return 0.0
+        if self.global_step >= self.epsilon_decay_steps:
+            return self.epsilon_end
+        frac = 1.0 - (self.global_step / float(self.epsilon_decay_steps))
+        return self.epsilon_end + (self.epsilon_start - self.epsilon_end) * frac
 
     def save(self, path):
         if not torch:
             return
         torch.save({
             "model": self.model.state_dict(),
+            "target_model": self.target_model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
-            "epsilon": self.epsilon,
-            "memory": list(self.memory)
+            "memory": list(self.memory),
+            "global_step": self.global_step,
+            "eps_params": (self.epsilon_start, self.epsilon_end, self.epsilon_decay_steps),
         }, path)
 
     def load(self, path):
         if not torch or not os.path.exists(path):
             return False
-        data = torch.load(path)
-        self.model.load_state_dict(data.get("model", {}))
-        self.optimizer.load_state_dict(data.get("optimizer", {}))
-        self.target_model.load_state_dict(self.model.state_dict())
-        self.epsilon = data.get("epsilon", self.epsilon)
-        self.memory = deque(data.get("memory", []), maxlen=5000)
+        data = torch.load(path, map_location=DEVICE)
+        if "model" in data:
+            self.model.load_state_dict(data["model"])
+        if "target_model" in data:
+            self.target_model.load_state_dict(data["target_model"])
+        else:
+            self.target_model.load_state_dict(self.model.state_dict())
+        if "optimizer" in data:
+            try:
+                self.optimizer.load_state_dict(data["optimizer"])
+            except Exception:
+                pass
+        if "memory" in data:
+            self.memory = deque(data["memory"], maxlen=50_000)
+        self.global_step = data.get("global_step", 0)
+        eps = data.get("eps_params", None)
+        if eps:
+            self.epsilon_start, self.epsilon_end, self.epsilon_decay_steps = eps
         return True
 
+    # --------- state encoding ---------
     def normalize(self, data):
-        dx = (data["gx"] - data["px"]) / 50.0
-        dz = (data["gz"] - data["pz"]) / 50.0
+        # Raw deltas (world units)
+        dx_raw = (data["gx"] - data["px"])
+        dz_raw = (data["gz"] - data["pz"])
+
+        # Yaw error (radians) wrapped to [-pi, pi]
+        yaw_rad = math.radians(data["yaw"])
+        goal_bearing = math.atan2(dz_raw, dx_raw)
+        yaw_err = (yaw_rad - goal_bearing + math.pi) % (2 * math.pi) - math.pi
+        yaw_err_mag = abs(yaw_err)
+
+        # Scale features (keep STATE_DIM=5 by using sin(yaw_err) as the orientation feature)
+        dx = dx_raw / 50.0
+        dz = dz_raw / 50.0
         vx = data["vx"] / 5.0
         vz = data["vz"] / 5.0
-        yaw = data["yaw"] / 180.0
-        state = torch.tensor([dx, dz, vx, vz, yaw], dtype=torch.float32) if torch else [dx, dz, vx, vz, yaw]
-        dist = math.hypot(dx, dz)
-        return state, dist
+        sy = math.sin(yaw_err)
 
+        state = torch.tensor([dx, dz, vx, vz, sy], dtype=torch.float32, device=DEVICE) if torch else [dx, dz, vx, vz, sy]
+
+        # Distance in normalized space (consistent with dx,dz scaling)
+        dist = math.hypot(dx, dz)
+        return state, dist, yaw_err_mag
+
+    # --------- policy ---------
     def act(self, state):
-        if torch and random.random() > self.epsilon:
+        if torch and random.random() > self.current_epsilon():
             with torch.no_grad():
-                q = self.model(state)
-                return int(torch.argmax(q).item())
+                q = self.model(state.unsqueeze(0))  # [1, ACTION_DIM]
+                return int(torch.argmax(q, dim=1).item())
         return random.randrange(ACTION_DIM)
 
+    # --------- replay buffer ---------
     def remember(self, s, a, r, ns, done):
         if torch:
             self.memory.append((s, a, r, ns, done))
 
+    # --------- learning ---------
     def replay(self):
-        if not torch or len(self.memory) < self.batch_size:
+        if not torch or len(self.memory) < self.replay_min:
             return
+        if self.global_step % self.update_every != 0:
+            return
+
         batch = random.sample(self.memory, self.batch_size)
-        states = torch.stack([b[0] for b in batch])
-        actions = torch.tensor([b[1] for b in batch])
-        rewards = torch.tensor([b[2] for b in batch])
-        next_states = torch.stack([b[3] for b in batch])
-        dones = torch.tensor([b[4] for b in batch], dtype=torch.float32)
-        q_values = self.model(states).gather(1, actions.unsqueeze(1)).squeeze()
+        states = torch.stack([b[0] for b in batch]).to(DEVICE)
+        actions = torch.tensor([b[1] for b in batch], device=DEVICE, dtype=torch.long)
+        rewards = torch.tensor([b[2] for b in batch], device=DEVICE, dtype=torch.float32)
+        next_states = torch.stack([b[3] for b in batch]).to(DEVICE)
+        dones = torch.tensor([b[4] for b in batch], device=DEVICE, dtype=torch.float32)
+
+        # Q(s,a)
+        q_values = self.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        # Double DQN target
         with torch.no_grad():
-            next_q = self.target_model(next_states).max(1)[0]
-        target = rewards + self.gamma * next_q * (1 - dones)
+            next_actions = self.model(next_states).argmax(dim=1)
+            next_q = self.target_model(next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)
+            target = rewards + self.gamma * next_q * (1.0 - dones)
+
         loss = self.loss_fn(q_values, target)
         self.optimizer.zero_grad()
         loss.backward()
+        nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
         self.optimizer.step()
 
+        # Soft target update (Polyak averaging)
+        with torch.no_grad():
+            for tp, p in zip(self.target_model.parameters(), self.model.parameters()):
+                tp.data.mul_(1.0 - self.tau).add_(self.tau * p.data)
+
         self.learn_step += 1
-        if self.learn_step % self.target_update == 0:
-            self.target_model.load_state_dict(self.model.state_dict())
 
-    def decay(self):
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
 
+# -----------------------------
+# Main loop
+# -----------------------------
 def main():
     checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "ql_nav_checkpoint.pth"
-    eval_mode = len(sys.argv) > 2 and sys.argv[2].lower() == "true"
+    eval_mode = len(sys.argv) > 2 and str(sys.argv[2]).lower() == "true"
+
     agent = Agent()
     if torch and agent.load(checkpoint_path):
         print(f"Loaded checkpoint from {checkpoint_path}", file=sys.stderr)
     else:
         print("No checkpoint found, starting fresh.", file=sys.stderr)
-    if eval_mode:
-        agent.epsilon = 0.0
+
+    agent.eval_mode = bool(eval_mode)
+
     episode_rewards = []
     episode_reward = 0.0
     episode_count = 0
+
     if plt:
         plt.ion()
         fig, ax = plt.subplots()
+
     while True:
         line = sys.stdin.readline()
         if not line:
             break
         data = json.loads(line)
-        state, dist = agent.normalize(data)
+
+        state, dist, yaw_err_mag = agent.normalize(data)
         done = data.get("done", False)
         reached = data.get("reached", False)
         stuck = data.get("stuck", False)
 
+        # Initialize episode metrics
         if agent.last_distance is None:
             agent.last_distance = dist
             agent.start_distance = dist
+        if agent.prev_yaw_err is None:
+            agent.prev_yaw_err = yaw_err_mag
 
-        if torch:
-            dx, dz, vx, vz, yaw = state.tolist()
-        else:
-            dx, dz, vx, vz, yaw = state
+        # Reward shaping: delta distance + heading improvement + small step cost
+        progress = (agent.last_distance - dist) if agent.last_distance is not None else 0.0
+        yaw_improve = (agent.prev_yaw_err - yaw_err_mag) if agent.prev_yaw_err is not None else 0.0
 
-        if agent.start_distance:
-            progress = (agent.last_distance - dist) / agent.start_distance
-            alignment = (dx * vx + dz * vz) / agent.start_distance
-        else:
-            progress = 0.0
-            alignment = 0.0
-        reward = progress * 10 + alignment * 5 - 0.05
+        reward = 3.0 * progress + 0.5 * yaw_improve - 0.01  # step penalty to discourage dithering
 
-        # Penalize dithering near the goal with little progress.
-        if agent.last_distance is not None and dist * 50.0 < 3.0:
-            if agent.last_distance - dist < 0.0005:
-                reward -= 0.5
+        # Near-goal assist (original ~3 units ≈ 3/50 = 0.06 in normalized distance)
+        if dist < 0.06:
+            reward += 0.05
 
         if done:
             if reached:
                 reward += 100.0
             else:
-                reward -= 25.0
+                reward -= 10.0
                 if stuck:
                     reward -= 10.0
 
-        if agent.last_state is not None and not eval_mode:
+        # Learn
+        if agent.last_state is not None and not agent.eval_mode:
             agent.remember(agent.last_state, agent.last_action, reward, state, done)
             agent.replay()
 
         episode_reward += reward
 
+        # Act
         action = agent.act(state)
         sys.stdout.write(str(action) + "\n")
         sys.stdout.flush()
 
+        # Advance time step for schedules
+        agent.global_step += 1
+
         if done:
             episode_rewards.append(episode_reward)
-            if plt:
+
+            # Plot occasionally
+            if plt and (PLOT_EVERY is not None) and (episode_count % PLOT_EVERY == 0):
                 ax.clear()
                 ax.plot(episode_rewards)
                 ax.set_xlabel("Episode")
                 ax.set_ylabel("Total Reward")
                 ax.set_title("QLearningNavigator Reward Progress")
                 plt.pause(0.001)
+
             episode_reward = 0.0
             episode_count += 1
+
+            # Reset episodic trackers
             agent.last_state = None
             agent.last_action = None
             agent.last_distance = None
+            agent.prev_yaw_err = None
             agent.start_distance = None
-            if not eval_mode:
-                agent.decay()
-                if torch and episode_count % CHECKPOINT_INTERVAL == 0:
-                    agent.save(checkpoint_path)
+
+            # Checkpoint occasionally
+            if torch and (not agent.eval_mode) and (episode_count % CHECKPOINT_INTERVAL == 0):
+                agent.save(checkpoint_path)
         else:
             agent.last_state = state
             agent.last_action = action
             agent.last_distance = dist
+            agent.prev_yaw_err = yaw_err_mag
+
 
 if __name__ == "__main__":
     main()

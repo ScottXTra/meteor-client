@@ -23,7 +23,9 @@ import java.util.concurrent.ThreadLocalRandom;
  * responds with movement actions. Debug information is printed to the Minecraft chat.
  */
 public class QLearningNavigator extends Module {
-    private static final int MAX_STEPS = 20;
+    private static final double MIN_GOAL_DISTANCE = 3.0;
+    private static final double GOAL_SPAWN_RANGE = 20.0;
+    private static final int MAX_STEPS = 60;
     private static final int STUCK_TICKS = 20;
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
@@ -133,17 +135,26 @@ public class QLearningNavigator extends Module {
     }
 
     private void resetGoal() {
-        startX = mc.player.getX();
-        startZ = mc.player.getZ();
-        goalX = startX + ThreadLocalRandom.current().nextDouble(-20, 20);
-        goalZ = startZ + ThreadLocalRandom.current().nextDouble(-20, 20);
-        goalY = mc.player.getY();
-        step = 0;
-        nearGoalTicks = 0;
-        lastDist = Double.MAX_VALUE;
-        startTime = System.currentTimeMillis();
-        info("New goal X: %.1f Y: %.1f Z: %.1f", goalX, goalY, goalZ);
-    }
+    startX = mc.player.getX();
+    startZ = mc.player.getZ();
+
+    // Sample offsets until the horizontal distance is >= MIN_GOAL_DISTANCE
+    double dx, dz;
+    do {
+        dx = ThreadLocalRandom.current().nextDouble(-GOAL_SPAWN_RANGE, GOAL_SPAWN_RANGE);
+        dz = ThreadLocalRandom.current().nextDouble(-GOAL_SPAWN_RANGE, GOAL_SPAWN_RANGE);
+    } while ((dx * dx + dz * dz) < (MIN_GOAL_DISTANCE * MIN_GOAL_DISTANCE));
+
+    goalX = startX + dx;
+    goalZ = startZ + dz;
+    goalY = mc.player.getY();
+
+    step = 0;
+    nearGoalTicks = 0;
+    lastDist = Double.MAX_VALUE;
+    startTime = System.currentTimeMillis();
+    info("New goal X: %.1f Y: %.1f Z: %.1f", goalX, goalY, goalZ);
+}
 
     @EventHandler
     private void onTick(TickEvent.Pre event) {
