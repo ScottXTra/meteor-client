@@ -73,7 +73,7 @@ def select_action(s):
 
 def train_step():
     if len(buffer) < BATCH:
-        return
+        return None
     batch = random.sample(buffer, BATCH)
     s  = torch.stack([t.s for t in batch]).to(device)
     a  = torch.tensor([t.a for t in batch], dtype=torch.int64, device=device).unsqueeze(1)
@@ -95,6 +95,8 @@ def train_step():
     nn.utils.clip_grad_norm_(policy.parameters(), GRAD_CLIP)
     optimizer.step()
 
+    return loss.item()
+
 # ----- Main loop -----
 for raw in sys.stdin:
     parts = raw.strip().split(',')
@@ -109,6 +111,7 @@ for raw in sys.stdin:
 
     # --- reward shaping (based on previous step -> now) ---
     reward = 0.0
+    loss_val = None
     if prev_s is not None:
         # progress reward: decrease in distance
         reward += (prev_dist - dist) * 3.0
@@ -127,13 +130,21 @@ for raw in sys.stdin:
             reward += 1.0
 
         buffer.append(Transition(prev_s, prev_a, reward, s, 1.0 if done_flag else 0.0))
-        train_step()
+        loss_val = train_step()
 
     # act
     a = select_action(s)
 
-    # output action immediately
-    sys.stdout.write(ACTIONS[a] + "\n")
+    # optionally send training info to chat every 100 steps
+    msg = ""
+    if loss_val is not None and global_step % 100 == 0:
+        msg = f"step {global_step} loss {loss_val:.4f} eps {epsilon():.2f}"
+
+    # output action (and optional message separated by '|') immediately
+    out = ACTIONS[a]
+    if msg:
+        out += "|" + msg
+    sys.stdout.write(out + "\n")
     sys.stdout.flush()
 
     prev_s = None if done_flag else s

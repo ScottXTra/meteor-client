@@ -174,10 +174,19 @@ public class GoalNavigator extends Module {
             writer.write(line);
             writer.flush();
 
-            // read action if available (non-blocking)
-            String action = null;
-            if (reader.ready()) action = reader.readLine();
-            if (action != null && !action.isEmpty()) lastAction = action.trim();
+            // read action and optional chat message if available (non-blocking)
+            if (reader.ready()) {
+                String resp = reader.readLine();
+                if (resp != null && !resp.isEmpty()) {
+                    String[] parts = resp.split("\\|", 2);
+                    String act = parts[0].trim();
+                    if (!act.isEmpty()) lastAction = act;
+                    if (parts.length > 1) {
+                        String msg = parts[1].trim();
+                        if (!msg.isEmpty()) info(msg);
+                    }
+                }
+            }
 
             applyAction(lastAction);
         } catch (IOException e) {
