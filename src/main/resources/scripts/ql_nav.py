@@ -228,12 +228,15 @@ def main():
     agent.eval_mode = bool(eval_mode)
 
     episode_rewards = []
+    rolling_rewards = []
     episode_reward = 0.0
     episode_count = 0
 
     if plt:
         plt.ion()
         fig, ax = plt.subplots()
+        plt.show(block=False)
+        plt.pause(0.001)
 
     while True:
         line = sys.stdin.readline()
@@ -288,14 +291,20 @@ def main():
 
         if done:
             episode_rewards.append(episode_reward)
+            window = episode_rewards[-20:]
+            rolling_rewards.append(sum(window) / len(window))
 
             # Plot occasionally
             if plt and (PLOT_EVERY is not None) and (episode_count % PLOT_EVERY == 0):
                 ax.clear()
-                ax.plot(episode_rewards)
+                ax.plot(episode_rewards, label="Episode Reward")
+                ax.plot(rolling_rewards, label="20-episode rolling avg")
                 ax.set_xlabel("Episode")
                 ax.set_ylabel("Total Reward")
                 ax.set_title("QLearningNavigator Reward Progress")
+                ax.legend()
+                fig.canvas.draw_idle()
+                fig.canvas.flush_events()
                 plt.pause(0.001)
 
             episode_reward = 0.0
