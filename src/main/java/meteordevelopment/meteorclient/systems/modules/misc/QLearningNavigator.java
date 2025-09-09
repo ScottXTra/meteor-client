@@ -5,6 +5,7 @@ import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
+import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
@@ -24,6 +25,14 @@ import java.util.concurrent.ThreadLocalRandom;
 public class QLearningNavigator extends Module {
     private static final int MAX_STEPS = 200;
     private static final int STUCK_TICKS = 20;
+
+    private final SettingGroup sgGeneral = settings.getDefaultGroup();
+    private final Setting<Boolean> evaluation = sgGeneral.add(new BoolSetting.Builder()
+        .name("evaluation")
+        .description("Runs the model without training.")
+        .defaultValue(false)
+        .build()
+    );
 
     private Process python;
     private BufferedWriter writer;
@@ -60,7 +69,7 @@ public class QLearningNavigator extends Module {
             File checkpoint = new File(MeteorClient.FOLDER, "ql_nav_checkpoint.pth");
             if (checkpoint.exists()) info("Loading checkpoint from %s", checkpoint.getAbsolutePath());
             else info("No checkpoint found, starting fresh.");
-            python = new ProcessBuilder("python", tmp.getAbsolutePath(), checkpoint.getAbsolutePath()).start();
+            python = new ProcessBuilder("python", tmp.getAbsolutePath(), checkpoint.getAbsolutePath(), evaluation.get().toString()).start();
             writer = new BufferedWriter(new OutputStreamWriter(python.getOutputStream()));
             reader = new BufferedReader(new InputStreamReader(python.getInputStream()));
 
@@ -78,7 +87,7 @@ public class QLearningNavigator extends Module {
             totalTime = 0;
             goalsReached = 0;
             resetGoal();
-            info("Training started.");
+            info(evaluation.get() ? "Evaluation started." : "Training started.");
         } catch (IOException e) {
             error("Python start failed: %s", e.getMessage());
             toggle();
@@ -103,6 +112,7 @@ public class QLearningNavigator extends Module {
         mc.options.backKey.setPressed(false);
         mc.options.leftKey.setPressed(false);
         mc.options.rightKey.setPressed(false);
+        mc.options.jumpKey.setPressed(false);
     }
 
     private void applyAction(int action) {
@@ -112,6 +122,11 @@ public class QLearningNavigator extends Module {
             case 1 -> mc.options.backKey.setPressed(true);
             case 2 -> mc.options.leftKey.setPressed(true);
             case 3 -> mc.options.rightKey.setPressed(true);
+            case 4 -> {
+            }
+            case 5 -> mc.options.jumpKey.setPressed(true);
+            case 6 -> mc.player.setYaw(mc.player.getYaw() - 45f);
+            case 7 -> mc.player.setYaw(mc.player.getYaw() + 45f);
             default -> {
             }
         }

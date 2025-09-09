@@ -19,7 +19,7 @@ except Exception:
     plt = None
 
 STATE_DIM = 4  # dx, dz, vx, vz
-ACTION_DIM = 5  # forward, back, left, right, idle
+ACTION_DIM = 8  # forward, back, left, right, idle, jump, look_left, look_right
 CHECKPOINT_INTERVAL = 10
 
 class DQN(nn.Module):
@@ -126,11 +126,14 @@ class Agent:
 
 def main():
     checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "ql_nav_checkpoint.pth"
+    eval_mode = len(sys.argv) > 2 and sys.argv[2].lower() == "true"
     agent = Agent()
     if torch and agent.load(checkpoint_path):
         print(f"Loaded checkpoint from {checkpoint_path}", file=sys.stderr)
     else:
         print("No checkpoint found, starting fresh.", file=sys.stderr)
+    if eval_mode:
+        agent.epsilon = 0.0
     episode_rewards = []
     episode_reward = 0.0
     episode_count = 0
@@ -177,7 +180,7 @@ def main():
                 if stuck:
                     reward -= 10.0
 
-        if agent.last_state is not None:
+        if agent.last_state is not None and not eval_mode:
             agent.remember(agent.last_state, agent.last_action, reward, state, done)
             agent.replay()
 
@@ -202,9 +205,10 @@ def main():
             agent.last_action = None
             agent.last_distance = None
             agent.start_distance = None
-            agent.decay()
-            if torch and episode_count % CHECKPOINT_INTERVAL == 0:
-                agent.save(checkpoint_path)
+            if not eval_mode:
+                agent.decay()
+                if torch and episode_count % CHECKPOINT_INTERVAL == 0:
+                    agent.save(checkpoint_path)
         else:
             agent.last_state = state
             agent.last_action = action
