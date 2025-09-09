@@ -163,13 +163,14 @@ public class PythonQLearning extends Module {
             // Compose one observation per tick (start-relative)
             Vec3d p = mc.player.getPos();
             Vec3d rel = p.subtract(episodeStart); // player relative to episode start
+            Vec3d vel = mc.player.getVelocity();
             float yaw = mc.player.getYaw();
             float pitch = mc.player.getPitch();
 
             String msg = String.format(
-                "{\"player_rel\":{\"dx\":%f,\"dz\":%f,\"yaw\":%f,\"pitch\":%f},"
+                "{\"player_rel\":{\"dx\":%f,\"dz\":%f,\"yaw\":%f,\"pitch\":%f,\"vx\":%f,\"vz\":%f},"
                     + "\"goal_rel\":{\"dx\":%f,\"dz\":%f}%s%s%s}\n",
-                rel.x, rel.z, yaw, pitch,
+                rel.x, rel.z, yaw, pitch, vel.x, vel.z,
                 goalRel.x, goalRel.z,
                 goalChanged ? ",\"reset\":true" : "",
                 goalFailed ? ",\"fail\":true" : "",

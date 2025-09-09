@@ -2,7 +2,8 @@
 # Reward is based ONLY on normalized distance-to-goal:
 #   - Per-step: r_step = -dist_norm
 #   - On episode end (reset): r += (1 - dist_norm)  # closer end-state => more reward
-# Inputs are normalized: dx,dz in [-1,1], orientation via cos/sin(yaw_diff).
+# Inputs are normalized: dx,dz in [-1,1], orientation via cos/sin(yaw_diff),
+# and velocity components vx,vz clamped to [-1,1].
 
 import sys
 import json
@@ -73,8 +74,8 @@ def angle_wrap(a: float) -> float:
 # --------------------------------------------------------------------------------------
 
 class DQN(nn.Module):
-    # Inputs: [dx_norm, dz_norm, cos(yaw_diff), sin(yaw_diff)]
-    def __init__(self, input_dim=4, hidden=128, outputs=NUM_ACTIONS):
+    # Inputs: [dx_norm, dz_norm, cos(yaw_diff), sin(yaw_diff), vx, vz]
+    def __init__(self, input_dim=6, hidden=128, outputs=NUM_ACTIONS):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden),
@@ -116,7 +117,7 @@ class ReplayBuffer:
 # Helpers
 # --------------------------------------------------------------------------------------
 
-def build_state(px, pz, yaw_deg, gx, gz):
+def build_state(px, pz, yaw_deg, gx, gz, vx, vz):
     dx = gx - px
     dz = gz - pz
 
@@ -124,13 +125,17 @@ def build_state(px, pz, yaw_deg, gx, gz):
     dxn = max(-1.0, min(1.0, dx / MAX_GOAL_DIST))
     dzn = max(-1.0, min(1.0, dz / MAX_GOAL_DIST))
 
+    # clamp velocity components to [-1, 1]
+    vxn = max(-1.0, min(1.0, vx))
+    vzn = max(-1.0, min(1.0, vz))
+
     # orientation: angle to goal vs player yaw
     target_bearing = math.atan2(dz, dx)  # [-pi, pi]
     yaw_rad = math.radians(yaw_deg)
     yaw_diff = angle_wrap(target_bearing - yaw_rad)
 
-    # state vector is already normalized: dxn/dzn in [-1,1], cos/sin in [-1,1]
-    return [dxn, dzn, math.cos(yaw_diff), math.sin(yaw_diff)], math.hypot(dx, dz)
+    # state vector is already normalized
+    return [dxn, dzn, math.cos(yaw_diff), math.sin(yaw_diff), vxn, vzn], math.hypot(dx, dz)
 
 def choose_action(qnet, state_tensor, epsilon):
     if random.random() < epsilon:
@@ -215,16 +220,18 @@ for line in sys.stdin:
     success = bool(data.get("success", False))  # not used for reward; kept for logs
     fail = bool(data.get("fail", False))        # not used for reward; kept for logs
 
-    # Player pose (relative to episode start)
+    # Player pose (relative to episode start) and velocity
     px = float(data["player_rel"]["dx"])
     pz = float(data["player_rel"]["dz"])
     yaw = float(data["player_rel"]["yaw"])
+    vx = float(data["player_rel"].get("vx", 0.0))
+    vz = float(data["player_rel"].get("vz", 0.0))
 
     # Goal relative to episode start
     gx = float(data["goal_rel"]["dx"])
     gz = float(data["goal_rel"]["dz"])
 
-    state_vec, dist = build_state(px, pz, yaw, gx, gz)
+    state_vec, dist = build_state(px, pz, yaw, gx, gz, vx, vz)
     dist_norm = dist_to_norm(dist)  # in [0, 1]
     state_t = torch.tensor([state_vec], dtype=torch.float32, device=device)
 
