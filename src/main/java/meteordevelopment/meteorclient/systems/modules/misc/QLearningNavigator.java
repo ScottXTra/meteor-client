@@ -23,6 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public class QLearningNavigator extends Module {
     private static final int MAX_STEPS = 200;
+    private static final int STUCK_TICKS = 20;
 
     private Process python;
     private BufferedWriter writer;
@@ -30,6 +31,8 @@ public class QLearningNavigator extends Module {
 
     private double goalX, goalY, goalZ;
     private int step;
+    private int nearGoalTicks;
+    private double lastDist;
 
     private long startTime;
     private long totalTime;
@@ -118,6 +121,8 @@ public class QLearningNavigator extends Module {
         goalZ = mc.player.getZ() + ThreadLocalRandom.current().nextDouble(-20, 20);
         goalY = mc.player.getY();
         step = 0;
+        nearGoalTicks = 0;
+        lastDist = Double.MAX_VALUE;
         startTime = System.currentTimeMillis();
         info("New goal X: %.1f Y: %.1f Z: %.1f", goalX, goalY, goalZ);
     }
@@ -132,9 +137,16 @@ public class QLearningNavigator extends Module {
         double vz = mc.player.getVelocity().z;
 
         double dist = Math.hypot(goalX - px, goalZ - pz);
+        if (dist < 3.0) {
+            if (Math.abs(lastDist - dist) < 0.01) nearGoalTicks++;
+            else nearGoalTicks = 0;
+        } else nearGoalTicks = 0;
+        lastDist = dist;
+
         boolean reached = dist < 1.5;
         boolean timeout = step++ >= MAX_STEPS;
-        boolean done = reached || timeout;
+        boolean stuck = nearGoalTicks >= STUCK_TICKS;
+        boolean done = reached || timeout || stuck;
 
         JsonObject obj = new JsonObject();
         obj.addProperty("px", px);
@@ -145,6 +157,7 @@ public class QLearningNavigator extends Module {
         obj.addProperty("gz", goalZ);
         obj.addProperty("done", done);
         obj.addProperty("reached", reached);
+        obj.addProperty("stuck", stuck);
 
         try {
             writer.write(obj.toString());
@@ -164,7 +177,11 @@ public class QLearningNavigator extends Module {
                     goalsReached++;
                     double avg = totalTime / (double) goalsReached / 1000.0;
                     info("Goal reached in %d steps (%.2fs). Avg time: %.2fs", step, elapsed / 1000.0, avg);
-                } else info("Episode timed out.");
+                } else if (stuck) {
+                    info("Episode ended due to lack of progress near goal.");
+                } else {
+                    info("Episode timed out.");
+                }
                 resetGoal();
             }
         } catch (Exception e) {

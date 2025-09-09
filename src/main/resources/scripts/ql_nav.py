@@ -145,6 +145,7 @@ def main():
         state, dist = agent.normalize(data)
         done = data.get("done", False)
         reached = data.get("reached", False)
+        stuck = data.get("stuck", False)
 
         if agent.last_distance is None:
             agent.last_distance = dist
@@ -163,11 +164,18 @@ def main():
             alignment = 0.0
         reward = progress * 10 + alignment * 5 - 0.05
 
+        # Penalize dithering near the goal with little progress.
+        if agent.last_distance is not None and dist * 50.0 < 3.0:
+            if agent.last_distance - dist < 0.0005:
+                reward -= 0.5
+
         if done:
             if reached:
                 reward += 100.0
             else:
                 reward -= 25.0
+                if stuck:
+                    reward -= 10.0
 
         if agent.last_state is not None:
             agent.remember(agent.last_state, agent.last_action, reward, state, done)
