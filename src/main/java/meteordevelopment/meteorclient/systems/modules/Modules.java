@@ -488,7 +488,6 @@ public class Modules extends System<Modules> {
         add(new Step());
         add(new TridentBoost());
         add(new Velocity());
-        add(new GoalNavigator());
     }
 
     private void initRender() {
@@ -583,5 +582,6 @@ public class Modules extends System<Modules> {
         add(new Spam());
         add(new Swarm());
         add(new PythonExample());
+        add(new QLearningNavigator());
     }
 }
