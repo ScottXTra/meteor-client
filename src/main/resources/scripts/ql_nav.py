@@ -39,18 +39,23 @@ class DQN(nn.Module):
 class Agent:
     def __init__(self):
         self.epsilon = 1.0
-        self.epsilon_min = 0.05
-        self.epsilon_decay = 0.995
+        self.epsilon_min = 0.1
+        self.epsilon_decay = 0.96
         self.gamma = 0.99
         self.batch_size = 64
         self.memory = deque(maxlen=5000)
         if torch:
             self.model = DQN()
+            self.target_model = DQN()
+            self.target_model.load_state_dict(self.model.state_dict())
             self.optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
             self.loss_fn = nn.MSELoss()
+            self.learn_step = 0
+            self.target_update = 100
         self.last_state = None
         self.last_action = None
         self.last_distance = None
+        self.start_distance = None
 
     def save(self, path):
         if not torch:
@@ -68,6 +73,7 @@ class Agent:
         data = torch.load(path)
         self.model.load_state_dict(data.get("model", {}))
         self.optimizer.load_state_dict(data.get("optimizer", {}))
+        self.target_model.load_state_dict(self.model.state_dict())
         self.epsilon = data.get("epsilon", self.epsilon)
         self.memory = deque(data.get("memory", []), maxlen=5000)
         return True
@@ -103,12 +109,16 @@ class Agent:
         dones = torch.tensor([b[4] for b in batch], dtype=torch.float32)
         q_values = self.model(states).gather(1, actions.unsqueeze(1)).squeeze()
         with torch.no_grad():
-            next_q = self.model(next_states).max(1)[0]
+            next_q = self.target_model(next_states).max(1)[0]
         target = rewards + self.gamma * next_q * (1 - dones)
         loss = self.loss_fn(q_values, target)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        self.learn_step += 1
+        if self.learn_step % self.target_update == 0:
+            self.target_model.load_state_dict(self.model.state_dict())
 
     def decay(self):
         if self.epsilon > self.epsilon_min:
@@ -138,14 +148,19 @@ def main():
 
         if agent.last_distance is None:
             agent.last_distance = dist
+            agent.start_distance = dist
 
         if torch:
             dx, dz, vx, vz = state.tolist()
         else:
             dx, dz, vx, vz = state
 
-        progress = agent.last_distance - dist
-        alignment = dx * vx + dz * vz
+        if agent.start_distance:
+            progress = (agent.last_distance - dist) / agent.start_distance
+            alignment = (dx * vx + dz * vz) / agent.start_distance
+        else:
+            progress = 0.0
+            alignment = 0.0
         reward = progress * 10 + alignment * 5 - 0.05
 
         if done:
@@ -178,6 +193,7 @@ def main():
             agent.last_state = None
             agent.last_action = None
             agent.last_distance = None
+            agent.start_distance = None
             agent.decay()
             if torch and episode_count % CHECKPOINT_INTERVAL == 0:
                 agent.save(checkpoint_path)
