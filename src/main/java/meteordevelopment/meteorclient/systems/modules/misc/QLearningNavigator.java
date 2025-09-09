@@ -23,7 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * responds with movement actions. Debug information is printed to the Minecraft chat.
  */
 public class QLearningNavigator extends Module {
-    private static final int MAX_STEPS = 200;
+    private static final int MAX_STEPS = 20;
     private static final int STUCK_TICKS = 20;
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
