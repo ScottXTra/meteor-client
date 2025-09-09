@@ -1,6 +1,7 @@
 package meteordevelopment.meteorclient.systems.modules.misc;
 
 import com.google.gson.JsonObject;
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
@@ -53,7 +54,10 @@ public class QLearningNavigator extends Module {
             tmp.deleteOnExit();
             Files.copy(script, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
-            python = new ProcessBuilder("python", tmp.getAbsolutePath()).start();
+            File checkpoint = new File(MeteorClient.FOLDER, "ql_nav_checkpoint.pth");
+            if (checkpoint.exists()) info("Loading checkpoint from %s", checkpoint.getAbsolutePath());
+            else info("No checkpoint found, starting fresh.");
+            python = new ProcessBuilder("python", tmp.getAbsolutePath(), checkpoint.getAbsolutePath()).start();
             writer = new BufferedWriter(new OutputStreamWriter(python.getOutputStream()));
             reader = new BufferedReader(new InputStreamReader(python.getInputStream()));
 

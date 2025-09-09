@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import math
+import os
 import random
 import sys
 from collections import deque
@@ -19,6 +20,7 @@ except Exception:
 
 STATE_DIM = 4  # dx, dz, vx, vz
 ACTION_DIM = 5  # forward, back, left, right, idle
+CHECKPOINT_INTERVAL = 10
 
 class DQN(nn.Module):
     def __init__(self):
@@ -49,6 +51,26 @@ class Agent:
         self.last_state = None
         self.last_action = None
         self.last_distance = None
+
+    def save(self, path):
+        if not torch:
+            return
+        torch.save({
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "epsilon": self.epsilon,
+            "memory": list(self.memory)
+        }, path)
+
+    def load(self, path):
+        if not torch or not os.path.exists(path):
+            return False
+        data = torch.load(path)
+        self.model.load_state_dict(data.get("model", {}))
+        self.optimizer.load_state_dict(data.get("optimizer", {}))
+        self.epsilon = data.get("epsilon", self.epsilon)
+        self.memory = deque(data.get("memory", []), maxlen=5000)
+        return True
 
     def normalize(self, data):
         dx = (data["gx"] - data["px"]) / 50.0
@@ -93,9 +115,15 @@ class Agent:
             self.epsilon *= self.epsilon_decay
 
 def main():
+    checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "ql_nav_checkpoint.pth"
     agent = Agent()
+    if torch and agent.load(checkpoint_path):
+        print(f"Loaded checkpoint from {checkpoint_path}", file=sys.stderr)
+    else:
+        print("No checkpoint found, starting fresh.", file=sys.stderr)
     episode_rewards = []
     episode_reward = 0.0
+    episode_count = 0
     if plt:
         plt.ion()
         fig, ax = plt.subplots()
@@ -140,10 +168,13 @@ def main():
                 ax.set_title("QLearningNavigator Reward Progress")
                 plt.pause(0.001)
             episode_reward = 0.0
+            episode_count += 1
             agent.last_state = None
             agent.last_action = None
             agent.last_distance = None
             agent.decay()
+            if torch and episode_count % CHECKPOINT_INTERVAL == 0:
+                agent.save(checkpoint_path)
         else:
             agent.last_state = state
             agent.last_action = action
