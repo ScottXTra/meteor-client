@@ -18,7 +18,7 @@ try:
 except Exception:
     plt = None
 
-STATE_DIM = 4  # dx, dz, vx, vz
+STATE_DIM = 5  # dx, dz, vx, vz, yaw
 ACTION_DIM = 8  # forward, back, left, right, idle, jump, look_left, look_right
 CHECKPOINT_INTERVAL = 10
 
@@ -83,7 +83,8 @@ class Agent:
         dz = (data["gz"] - data["pz"]) / 50.0
         vx = data["vx"] / 5.0
         vz = data["vz"] / 5.0
-        state = torch.tensor([dx, dz, vx, vz], dtype=torch.float32) if torch else [dx, dz, vx, vz]
+        yaw = data["yaw"] / 180.0
+        state = torch.tensor([dx, dz, vx, vz, yaw], dtype=torch.float32) if torch else [dx, dz, vx, vz, yaw]
         dist = math.hypot(dx, dz)
         return state, dist
 
@@ -155,9 +156,9 @@ def main():
             agent.start_distance = dist
 
         if torch:
-            dx, dz, vx, vz = state.tolist()
+            dx, dz, vx, vz, yaw = state.tolist()
         else:
-            dx, dz, vx, vz = state
+            dx, dz, vx, vz, yaw = state
 
         if agent.start_distance:
             progress = (agent.last_distance - dist) / agent.start_distance

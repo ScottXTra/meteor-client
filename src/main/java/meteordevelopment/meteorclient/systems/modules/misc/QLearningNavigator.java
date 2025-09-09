@@ -153,6 +153,7 @@ public class QLearningNavigator extends Module {
         double pz = mc.player.getZ();
         double vx = mc.player.getVelocity().x;
         double vz = mc.player.getVelocity().z;
+        double yaw = mc.player.getYaw();
 
         double pxRel = px - startX;
         double pzRel = pz - startZ;
@@ -176,6 +177,7 @@ public class QLearningNavigator extends Module {
         obj.addProperty("pz", pzRel);
         obj.addProperty("vx", vx);
         obj.addProperty("vz", vz);
+        obj.addProperty("yaw", yaw);
         obj.addProperty("gx", gxRel);
         obj.addProperty("gz", gzRel);
         obj.addProperty("done", done);
