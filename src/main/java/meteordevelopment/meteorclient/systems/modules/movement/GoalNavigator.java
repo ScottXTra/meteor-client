@@ -1,4 +1,4 @@
-package meteordevelopment.meteorclient.systems.modules.movement;
+package your.addon.modules.movement;
 
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
@@ -9,6 +9,7 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.util.math.MathHelper;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -25,17 +26,17 @@ public class GoalNavigator extends Module {
 
     private final Setting<Double> goalDistance = sgGeneral.add(new DoubleSetting.Builder()
         .name("goal-distance")
-        .description("Distance in blocks from current facing direction.")
+        .description("Distance in blocks in front of you when (re)setting goal.")
         .defaultValue(5.0)
-        .min(1.0).sliderRange(1.0, 15.0)
+        .min(1.0).sliderRange(1.0, 20.0)
         .build()
     );
 
     private final Setting<Integer> episodeTicks = sgGeneral.add(new IntSetting.Builder()
         .name("episode-length-ticks")
         .description("Max ticks before an episode ends.")
-        .defaultValue(40) // 2 seconds @ 20tps
-        .min(10).sliderRange(10, 200)
+        .defaultValue(40)
+        .min(10).sliderRange(10, 400)
         .build()
     );
 
@@ -47,10 +48,39 @@ public class GoalNavigator extends Module {
         .build()
     );
 
+    private final Setting<Boolean> newGoalOnSuccess = sgGeneral.add(new BoolSetting.Builder()
+        .name("new-goal-on-success")
+        .description("Pick a new goal ahead when you reach the current one.")
+        .defaultValue(true)
+        .build()
+    );
+
     private final Setting<Boolean> sprint = sgGeneral.add(new BoolSetting.Builder()
         .name("auto-sprint")
         .description("Hold sprint key while moving forward.")
         .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Boolean> allowJump = sgGeneral.add(new BoolSetting.Builder()
+        .name("allow-jump")
+        .description("Let the agent press jump (uses forward+jump to climb 1-block steps).")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Double> turnStepDeg = sgGeneral.add(new DoubleSetting.Builder()
+        .name("turn-step-deg")
+        .description("How many degrees to rotate on a single turn action.")
+        .defaultValue(7.5)
+        .min(1.0).sliderRange(1.0, 30.0)
+        .build()
+    );
+
+    private final Setting<String> pythonPath = sgGeneral.add(new StringSetting.Builder()
+        .name("python-path")
+        .description("Interpreter to run goal_navigator.py (use python on Windows, python3 on Linux/macOS).")
+        .defaultValue(isWindows() ? "python" : "python3")
         .build()
     );
 
@@ -85,9 +115,16 @@ public class GoalNavigator extends Module {
         .build()
     );
 
+    // goal (center of 1x1x1 box)
     private double goalX, goalY, goalZ;
     private int ticks;
     private String lastAction = "none"; // reuse if Python isn't ready
+
+    // Actions understood by the Python script
+    // forward, back, left, right, turn_left, turn_right, jump, none
+    private static final String[] ACTIONS = {
+        "forward","back","left","right","turn_left","turn_right","jump","none"
+    };
 
     public GoalNavigator() {
         super(Categories.Movement, "goal-navigator", "Navigates to a goal using a Python RL model.");
@@ -95,22 +132,17 @@ public class GoalNavigator extends Module {
 
     @Override
     public void onActivate() {
-        ClientPlayerEntity player = mc.player;
-        if (player == null) return;
+        ClientPlayerEntity p = mc.player;
+        if (p == null) return;
 
-        // Goal N blocks ahead in facing direction
-        double yawRad = Math.toRadians(player.getYaw(1.0f));
-        double dist = goalDistance.get();
-        goalX = player.getX() + (-Math.sin(yawRad)) * dist;
-        goalZ = player.getZ() + ( Math.cos(yawRad)) * dist;
-        goalY = player.getY();
+        setGoalAhead();
         ticks = 0;
         lastAction = "none";
 
         try {
             InputStream script = GoalNavigator.class.getResourceAsStream("/scripts/goal_navigator.py");
             if (script == null) {
-                error("Script not found");
+                error("Script not found in resources: /scripts/goal_navigator.py");
                 toggle();
                 return;
             }
@@ -119,11 +151,12 @@ public class GoalNavigator extends Module {
             tmp.deleteOnExit();
             Files.copy(script, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
-            ProcessBuilder pb = new ProcessBuilder("python3", "-u", tmp.getAbsolutePath());
+            ProcessBuilder pb = new ProcessBuilder(pythonPath.get(), "-u", tmp.getAbsolutePath());
             pb.redirectErrorStream(true);
             python = pb.start();
             writer = new BufferedWriter(new OutputStreamWriter(python.getOutputStream()));
             reader = new BufferedReader(new InputStreamReader(python.getInputStream()));
+            info("Launched Python: " + pythonPath.get());
         } catch (IOException e) {
             error("Failed to start python: {}", e.getMessage());
             toggle();
@@ -132,11 +165,7 @@ public class GoalNavigator extends Module {
 
     @Override
     public void onDeactivate() {
-        // clear keys
-        if (mc.player != null) {
-            clearMovementKeys();
-        }
-        // tear down python
+        clearMovementKeys();
         if (python != null) {
             python.destroy();
             python = null;
@@ -147,34 +176,49 @@ public class GoalNavigator extends Module {
 
     @EventHandler
     private void onTick(TickEvent.Post event) {
-        if (python == null || writer == null || reader == null || mc.player == null) return;
+        if (mc.player == null) return;
+        if (mc.currentScreen != null) { // don't press keys in menus
+            clearMovementKeys();
+            return;
+        }
+        if (python == null || writer == null || reader == null) return;
         if (!python.isAlive()) {
             error("Python process exited.");
             toggle();
             return;
         }
 
-        double x  = mc.player.getX();
-        double z  = mc.player.getZ();
-        double vx = mc.player.getVelocity().x;
-        double vz = mc.player.getVelocity().z;
+        ClientPlayerEntity p = mc.player;
 
         // Episode termination: close enough OR time exceeded
-        double dx = goalX - x;
-        double dz = goalZ - z;
+        double dx = goalX - p.getX();
+        double dz = goalZ - p.getZ();
         double distance = Math.hypot(dx, dz);
 
-        boolean done = distance <= successRadius.get() || ++ticks >= episodeTicks.get();
+        boolean success = distance <= successRadius.get();
+        boolean timeUp  = ++ticks >= episodeTicks.get();
+        boolean done = success || timeUp;
         if (done) ticks = 0;
 
+        // yaw delta to face goal (Meteor/Yarn yaw -> forward is (-sin, cos))
+        float yaw = p.getYaw();
+        float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        float deltaYaw = MathHelper.wrapDegrees(targetYaw - yaw); // [-180, 180]
+
         try {
-            // send observation
-            String line = String.format(Locale.ROOT, "%f,%f,%f,%f,%f,%f,%d\n",
-                    x, z, vx, vz, goalX, goalZ, done ? 1 : 0);
+            // x,z,vx,vz,gx,gz, deltaYaw(deg), horizCollision, done
+            String line = String.format(Locale.ROOT, "%f,%f,%f,%f,%f,%f,%f,%d,%d\n",
+                p.getX(), p.getZ(),
+                p.getVelocity().x, p.getVelocity().z,
+                goalX, goalZ,
+                (double) deltaYaw,
+                p.horizontalCollision ? 1 : 0,
+                done ? 1 : 0
+            );
             writer.write(line);
             writer.flush();
 
-            // read action and optional chat message if available (non-blocking)
+            // read action (non-blocking)
             if (reader.ready()) {
                 String resp = reader.readLine();
                 if (resp != null && !resp.isEmpty()) {
@@ -189,6 +233,10 @@ public class GoalNavigator extends Module {
             }
 
             applyAction(lastAction);
+
+            if (done && success && newGoalOnSuccess.get()) {
+                setGoalAhead(); // pick a fresh target ahead
+            }
         } catch (IOException e) {
             error("Python communication error: {}", e.getMessage());
             toggle();
@@ -198,12 +246,21 @@ public class GoalNavigator extends Module {
     @EventHandler
     private void onRender(Render3DEvent event) {
         if (!render.get()) return;
-
         event.renderer.box(
             goalX - 0.5, goalY, goalZ - 0.5,
-            goalX + 0.5, goalY + 1, goalZ + 0.5,
+            goalX + 0.5, goalY + 1.0, goalZ + 0.5,
             sideColor.get(), lineColor.get(), shapeMode.get(), 0
         );
+    }
+
+    private void setGoalAhead() {
+        ClientPlayerEntity p = mc.player;
+        if (p == null) return;
+        double yawRad = Math.toRadians(p.getYaw(1.0f));
+        double dist = goalDistance.get();
+        goalX = p.getX() + (-Math.sin(yawRad)) * dist;
+        goalZ = p.getZ() + ( Math.cos(yawRad)) * dist;
+        goalY = Math.floor(p.getY()); // simple same-height target
     }
 
     private void clearMovementKeys() {
@@ -211,11 +268,8 @@ public class GoalNavigator extends Module {
         mc.options.backKey.setPressed(false);
         mc.options.leftKey.setPressed(false);
         mc.options.rightKey.setPressed(false);
-        try {
-            mc.options.sprintKey.setPressed(false);
-        } catch (Throwable ignored) {
-            // some versions/keymaps may not expose sprintKey
-        }
+        try { mc.options.jumpKey.setPressed(false); } catch (Throwable ignored) {}
+        try { mc.options.sprintKey.setPressed(false); } catch (Throwable ignored) {}
     }
 
     private void applyAction(String action) {
@@ -225,9 +279,7 @@ public class GoalNavigator extends Module {
         switch (action) {
             case "forward":
                 mc.options.forwardKey.setPressed(true);
-                if (sprint.get()) {
-                    try { mc.options.sprintKey.setPressed(true); } catch (Throwable ignored) {}
-                }
+                if (sprint.get()) try { mc.options.sprintKey.setPressed(true); } catch (Throwable ignored) {}
                 break;
             case "back":
                 mc.options.backKey.setPressed(true);
@@ -238,10 +290,28 @@ public class GoalNavigator extends Module {
             case "right":
                 mc.options.rightKey.setPressed(true);
                 break;
+            case "turn_left":
+                if (mc.player != null) mc.player.setYaw(mc.player.getYaw() - turnStepDeg.get().floatValue());
+                break;
+            case "turn_right":
+                if (mc.player != null) mc.player.setYaw(mc.player.getYaw() + turnStepDeg.get().floatValue());
+                break;
+            case "jump":
+                if (!allowJump.get()) break;
+                // helpful default: jump while moving forward to step up blocks
+                mc.options.forwardKey.setPressed(true);
+                try { mc.options.jumpKey.setPressed(true); } catch (Throwable ignored) {}
+                if (sprint.get()) try { mc.options.sprintKey.setPressed(true); } catch (Throwable ignored) {}
+                break;
             case "none":
             default:
                 // no-op
                 break;
         }
+    }
+
+    private static boolean isWindows() {
+        String os = System.getProperty("os.name", "generic").toLowerCase(Locale.ROOT);
+        return os.contains("win");
     }
 }

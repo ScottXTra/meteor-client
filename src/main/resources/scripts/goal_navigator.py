@@ -1,49 +1,44 @@
-import sys, math, random
+import sys, math
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-# CPU-only, keep PyTorch light
 torch.set_num_threads(1)
 device = torch.device("cpu")
 
-ACTIONS = ["forward", "back", "left", "right", "none"]
+ACTIONS = ["forward","back","left","right","turn_left","turn_right","jump","none"]
 N_ACTIONS = len(ACTIONS)
 
-# ----- Model: shared torso + policy & value heads (A2C) -----
+# in_dim:
+# nx, nz (unit vector to goal), vx, vz, dist, speed, sin(dYaw), cos(dYaw), collide
+IN_DIM = 9
+
 class ActorCritic(nn.Module):
-    def __init__(self, in_dim=6, hid=64, out_dim=N_ACTIONS):
+    def __init__(self, in_dim=IN_DIM, hid=96, out_dim=N_ACTIONS):
         super().__init__()
         self.body = nn.Sequential(
-            nn.Linear(in_dim, hid),
-            nn.ReLU(),
-            nn.Linear(hid, hid),
-            nn.ReLU(),
+            nn.Linear(in_dim, hid), nn.ReLU(),
+            nn.Linear(hid, hid), nn.ReLU(),
         )
-        self.pi = nn.Linear(hid, out_dim)   # policy logits
-        self.v  = nn.Linear(hid, 1)         # state value
+        self.pi = nn.Linear(hid, out_dim)
+        self.v  = nn.Linear(hid, 1)
 
     def forward(self, x):
         h = self.body(x)
-        logits = self.pi(h)
-        value = self.v(h).squeeze(-1)
-        return logits, value
+        return self.pi(h), self.v(h).squeeze(-1)
 
 policy = ActorCritic().to(device)
-
 optimizer = optim.AdamW(policy.parameters(), lr=3e-4, betas=(0.9, 0.99), weight_decay=1e-4)
-value_loss_fn = nn.SmoothL1Loss()  # Huber for value
+value_loss_fn = nn.SmoothL1Loss()
 
-# ----- A2C hyperparams -----
 GAMMA = 0.98
-ENTROPY_BETA = 0.01
+ENTROPY_BETA = 0.015
 VALUE_BETA   = 0.5
 GRAD_CLIP    = 1.0
 
-# Temperature schedule for Boltzmann exploration (anneal over time)
 TAU_START = 1.00
 TAU_END   = 0.20
-TAU_STEPS = 5000
+TAU_STEPS = 6000
 global_step = 0
 
 def temperature():
@@ -53,28 +48,29 @@ def temperature():
 prev_s = None
 prev_a = None
 prev_dist = None
+prev_abs_dyaw = None
 
-def to_state(x, z, vx, vz, gx, gz):
-    # Same 6-D features as before (relative & well-scaled)
+def to_state(x, z, vx, vz, gx, gz, dyaw_deg, collide):
     dx, dz = gx - x, gz - z
     dist = math.hypot(dx, dz)
     speed = math.hypot(vx, vz)
-    nx = dx / (dist + 1e-6)
-    nz = dz / (dist + 1e-6)
-    s = torch.tensor([nx, nz, vx, vz, dist, speed], dtype=torch.float32)
-    return s
+    if dist < 1e-6:
+        nx, nz = 0.0, 0.0
+    else:
+        nx, nz = dx / dist, dz / dist
+    dyaw_rad = math.radians(dyaw_deg)
+    s = torch.tensor([nx, nz, vx, vz, dist, speed, math.sin(dyaw_rad), math.cos(dyaw_rad), float(collide)],
+                     dtype=torch.float32)
+    return s, dist, abs(dyaw_deg)
 
 @torch.no_grad()
 def select_action(s):
-    # Boltzmann policy with annealed temperature
     logits, _ = policy(s.unsqueeze(0).to(device))
     tau = temperature()
     probs = torch.softmax(logits / tau, dim=1)
-    a = torch.distributions.Categorical(probs=probs).sample().item()
-    return a
+    return torch.distributions.Categorical(probs=probs).sample().item()
 
 def a2c_update(prev_s, prev_a, reward, s1, done_flag):
-    # One-step A2C: bootstrap with V(s1)
     s0 = prev_s.unsqueeze(0).to(device)
     s1 = s1.unsqueeze(0).to(device)
 
@@ -101,56 +97,53 @@ def a2c_update(prev_s, prev_a, reward, s1, done_flag):
 
     return float(loss.item()), float(entropy.item()), float(advantage.item())
 
-# ----- Main loop (same I/O contract) -----
 for raw in sys.stdin:
     parts = raw.strip().split(',')
-    if len(parts) != 7:
+    if len(parts) != 9:
+        # old format? ignore line
         continue
 
     x, z, vx, vz, gx, gz = map(float, parts[:6])
-    done_flag = int(parts[6]) == 1
+    dyaw = float(parts[6])
+    collide = int(parts[7]) == 1
+    done_flag = int(parts[8]) == 1
 
-    s = to_state(x, z, vx, vz, gx, gz)
-    dist = s[4].item()
+    s, dist, abs_dyaw = to_state(x, z, vx, vz, gx, gz, dyaw, collide)
 
-    # --- reward shaping (unchanged) ---
     reward = 0.0
     loss_val = None
+
     if prev_s is not None:
-        # progress reward
+        # progress toward goal
         reward += (prev_dist - dist) * 3.0
-        # time penalty (prefer faster solutions)
+        # gentle penalty for large misalignment (prefer facing the goal)
+        reward += -0.002 * prev_abs_dyaw
+        # time penalty to encourage faster solutions
         reward += -0.01
-        # alignment reward: velocity aligned to goal direction (from previous step)
-        vx_prev, vz_prev = prev_s[2].item(), prev_s[3].item()
-        sp = math.hypot(vx_prev, vz_prev)
-        if sp > 1e-5:
-            align = (prev_s[0].item() * (vx_prev / sp) + prev_s[1].item() * (vz_prev / sp))
-            reward += 0.05 * align
-        # success bonus if close to goal
+        # if colliding, encourage jump/turn by small negative (discourage ramming)
+        if collide:
+            reward += -0.02
+        # success bonus
         if dist <= 0.8:
             reward += 1.0
 
-        # A2C one-step update
         loss_val, ent_val, adv_val = a2c_update(prev_s, prev_a, reward, s, done_flag)
 
-    # act from current state
     a = select_action(s)
 
-    # optional training info every 100 steps
     msg = ""
-    if loss_val is not None and global_step % 100 == 0:
+    if loss_val is not None and global_step % 120 == 0:
         msg = f"step {global_step} loss {loss_val:.4f} tau {temperature():.2f}"
 
-    # output action (and optional message separated by '|') immediately
     out = ACTIONS[a]
     if msg:
         out += "|" + msg
     sys.stdout.write(out + "\n")
     sys.stdout.flush()
 
-    prev_s   = None if done_flag else s
-    prev_a   = None if done_flag else a
-    prev_dist= None if done_flag else dist
+    prev_s = None if done_flag else s
+    prev_a = None if done_flag else a
+    prev_dist = None if done_flag else dist
+    prev_abs_dyaw = None if done_flag else abs_dyaw
 
     global_step += 1
