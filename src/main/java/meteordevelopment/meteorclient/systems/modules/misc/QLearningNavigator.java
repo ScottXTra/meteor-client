@@ -1,10 +1,14 @@
 package meteordevelopment.meteorclient.systems.modules.misc;
 
 import com.google.gson.JsonObject;
+import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
+import meteordevelopment.meteorclient.utils.render.color.Color;
+import net.minecraft.util.math.Box;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -23,9 +27,13 @@ public class QLearningNavigator extends Module {
     private BufferedWriter writer;
     private BufferedReader reader;
 
-    private double goalX, goalZ;
+    private double goalX, goalY, goalZ;
     private double prevDist;
     private int step;
+
+    private long startTime;
+    private long totalTime;
+    private int goalsReached;
 
     public QLearningNavigator() {
         super(Categories.Misc, "qlearning-navigator", "Trains a Q-learning agent to navigate to a goal.");
@@ -60,6 +68,8 @@ public class QLearningNavigator extends Module {
                 }
             }, "ql-nav-py").start();
 
+            totalTime = 0;
+            goalsReached = 0;
             resetGoal();
             info("Training started.");
         } catch (IOException e) {
@@ -103,9 +113,11 @@ public class QLearningNavigator extends Module {
     private void resetGoal() {
         goalX = mc.player.getX() + ThreadLocalRandom.current().nextDouble(-20, 20);
         goalZ = mc.player.getZ() + ThreadLocalRandom.current().nextDouble(-20, 20);
+        goalY = mc.player.getY();
         prevDist = Double.MAX_VALUE;
         step = 0;
-        info("New goal X: %.1f Z: %.1f", goalX, goalZ);
+        startTime = System.currentTimeMillis();
+        info("New goal X: %.1f Y: %.1f Z: %.1f", goalX, goalY, goalZ);
     }
 
     @EventHandler
@@ -145,8 +157,13 @@ public class QLearningNavigator extends Module {
             }
 
             if (done) {
-                if (reached) info("Goal reached in %d steps.", step);
-                else info("Episode timed out.");
+                if (reached) {
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    totalTime += elapsed;
+                    goalsReached++;
+                    double avg = totalTime / (double) goalsReached / 1000.0;
+                    info("Goal reached in %d steps (%.2fs). Avg time: %.2fs", step, elapsed / 1000.0, avg);
+                } else info("Episode timed out.");
                 resetGoal();
             }
         } catch (Exception e) {
@@ -155,5 +172,12 @@ public class QLearningNavigator extends Module {
         }
 
         prevDist = dist;
+    }
+
+    @EventHandler
+    private void onRender(Render3DEvent event) {
+        if (mc.player == null) return;
+        Box box = new Box(goalX - 0.5, goalY, goalZ - 0.5, goalX + 0.5, goalY + 1, goalZ + 0.5);
+        event.renderer.box(box, Color.GREEN, Color.GREEN, ShapeMode.Lines, 0);
     }
 }
