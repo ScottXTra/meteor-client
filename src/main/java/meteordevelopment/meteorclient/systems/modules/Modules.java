@@ -458,7 +458,6 @@ public class Modules extends System<Modules> {
         add(new AntiVoid());
         add(new AutoJump());
         add(new AutoWalk());
-        add(new PythonQLearning());
         add(new AutoWasp());
         add(new Blink());
         add(new BoatFly());
