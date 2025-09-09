@@ -4,7 +4,9 @@ import math
 import os
 import random
 import sys
+import threading
 from collections import deque
+from queue import Queue, Empty
 
 try:
     import torch
@@ -64,19 +66,18 @@ if torch:
 # -----------------------------
 class Agent:
     def __init__(self):
-        # Step-based epsilon schedule
         self.epsilon_start = 1.0
         self.epsilon_end = 0.1
-        self.epsilon_decay_steps = 50_000  # tune as needed
+        self.epsilon_decay_steps = 50_000
         self.global_step = 0
         self.eval_mode = False
 
         self.gamma = 0.99
         self.batch_size = 128
         self.memory = deque(maxlen=50_000)
-        self.update_every = 4       # learn every N environment steps
-        self.replay_min = 1_000     # warmup before learning
-        self.tau = 0.005            # soft target update rate
+        self.update_every = 4
+        self.replay_min = 1_000
+        self.tau = 0.005
 
         if torch:
             self.model = DQN().to(DEVICE)
@@ -86,14 +87,12 @@ class Agent:
             self.loss_fn = nn.SmoothL1Loss()
             self.learn_step = 0
 
-        # Episode bookkeeping
         self.last_state = None
         self.last_action = None
         self.last_distance = None
-        self.prev_yaw_err = None  # magnitude of yaw error (radians)
+        self.prev_yaw_err = None
         self.start_distance = None
 
-    # --------- utils ---------
     def current_epsilon(self):
         if self.eval_mode:
             return 0.0
@@ -137,19 +136,15 @@ class Agent:
             self.epsilon_start, self.epsilon_end, self.epsilon_decay_steps = eps
         return True
 
-    # --------- state encoding ---------
     def normalize(self, data):
-        # Raw deltas (world units)
         dx_raw = (data["gx"] - data["px"])
         dz_raw = (data["gz"] - data["pz"])
 
-        # Yaw error (radians) wrapped to [-pi, pi]
         yaw_rad = math.radians(data["yaw"])
         goal_bearing = math.atan2(dz_raw, dx_raw)
         yaw_err = (yaw_rad - goal_bearing + math.pi) % (2 * math.pi) - math.pi
         yaw_err_mag = abs(yaw_err)
 
-        # Scale features (keep STATE_DIM=5 by using sin(yaw_err) as the orientation feature)
         dx = dx_raw / 50.0
         dz = dz_raw / 50.0
         vx = data["vx"] / 5.0
@@ -157,25 +152,20 @@ class Agent:
         sy = math.sin(yaw_err)
 
         state = torch.tensor([dx, dz, vx, vz, sy], dtype=torch.float32, device=DEVICE) if torch else [dx, dz, vx, vz, sy]
-
-        # Distance in normalized space (consistent with dx,dz scaling)
         dist = math.hypot(dx, dz)
         return state, dist, yaw_err_mag
 
-    # --------- policy ---------
     def act(self, state):
         if torch and random.random() > self.current_epsilon():
             with torch.no_grad():
-                q = self.model(state.unsqueeze(0))  # [1, ACTION_DIM]
+                q = self.model(state.unsqueeze(0))
                 return int(torch.argmax(q, dim=1).item())
         return random.randrange(ACTION_DIM)
 
-    # --------- replay buffer ---------
     def remember(self, s, a, r, ns, done):
         if torch:
             self.memory.append((s, a, r, ns, done))
 
-    # --------- learning ---------
     def replay(self):
         if not torch or len(self.memory) < self.replay_min:
             return
@@ -189,10 +179,8 @@ class Agent:
         next_states = torch.stack([b[3] for b in batch]).to(DEVICE)
         dones = torch.tensor([b[4] for b in batch], device=DEVICE, dtype=torch.float32)
 
-        # Q(s,a)
         q_values = self.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        # Double DQN target
         with torch.no_grad():
             next_actions = self.model(next_states).argmax(dim=1)
             next_q = self.target_model(next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)
@@ -204,7 +192,6 @@ class Agent:
         nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
         self.optimizer.step()
 
-        # Soft target update (Polyak averaging)
         with torch.no_grad():
             for tp, p in zip(self.target_model.parameters(), self.model.parameters()):
                 tp.data.mul_(1.0 - self.tau).add_(self.tau * p.data)
@@ -236,10 +223,26 @@ def main():
         plt.ion()
         fig, ax = plt.subplots()
         plt.show(block=False)
-        plt.pause(0.001)
+
+    # --------------------
+    # stdin reader thread
+    # --------------------
+    q = Queue()
+    def _reader():
+        for line in sys.stdin:
+            q.put(line)
+    threading.Thread(target=_reader, daemon=True).start()
 
     while True:
-        line = sys.stdin.readline()
+        # service GUI every tick
+        if plt:
+            plt.pause(0.001)
+
+        try:
+            line = q.get(timeout=0.0)
+        except Empty:
+            continue
+
         if not line:
             break
         data = json.loads(line)
@@ -249,20 +252,17 @@ def main():
         reached = data.get("reached", False)
         stuck = data.get("stuck", False)
 
-        # Initialize episode metrics
         if agent.last_distance is None:
             agent.last_distance = dist
             agent.start_distance = dist
         if agent.prev_yaw_err is None:
             agent.prev_yaw_err = yaw_err_mag
 
-        # Reward shaping: delta distance + heading improvement + small step cost
         progress = (agent.last_distance - dist) if agent.last_distance is not None else 0.0
         yaw_improve = (agent.prev_yaw_err - yaw_err_mag) if agent.prev_yaw_err is not None else 0.0
 
-        reward = 3.0 * progress + 0.5 * yaw_improve - 0.01  # step penalty to discourage dithering
+        reward = 3.0 * progress + 0.5 * yaw_improve - 0.01
 
-        # Near-goal assist (original ~3 units ≈ 3/50 = 0.06 in normalized distance)
         if dist < 0.06:
             reward += 0.05
 
@@ -274,19 +274,16 @@ def main():
                 if stuck:
                     reward -= 10.0
 
-        # Learn
         if agent.last_state is not None and not agent.eval_mode:
             agent.remember(agent.last_state, agent.last_action, reward, state, done)
             agent.replay()
 
         episode_reward += reward
 
-        # Act
         action = agent.act(state)
         sys.stdout.write(str(action) + "\n")
         sys.stdout.flush()
 
-        # Advance time step for schedules
         agent.global_step += 1
 
         if done:
@@ -294,7 +291,6 @@ def main():
             window = episode_rewards[-20:]
             rolling_rewards.append(sum(window) / len(window))
 
-            # Plot occasionally
             if plt and (PLOT_EVERY is not None) and (episode_count % PLOT_EVERY == 0):
                 ax.clear()
                 ax.plot(episode_rewards, label="Episode Reward")
@@ -310,14 +306,12 @@ def main():
             episode_reward = 0.0
             episode_count += 1
 
-            # Reset episodic trackers
             agent.last_state = None
             agent.last_action = None
             agent.last_distance = None
             agent.prev_yaw_err = None
             agent.start_distance = None
 
-            # Checkpoint occasionally
             if torch and (not agent.eval_mode) and (episode_count % CHECKPOINT_INTERVAL == 0):
                 agent.save(checkpoint_path)
         else:
