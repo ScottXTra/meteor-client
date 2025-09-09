@@ -12,6 +12,11 @@ try:
 except Exception:
     torch = None
 
+try:
+    import matplotlib.pyplot as plt
+except Exception:
+    plt = None
+
 STATE_DIM = 4  # dx, dz, vx, vz
 ACTION_DIM = 5  # forward, back, left, right, idle
 
@@ -89,6 +94,11 @@ class Agent:
 
 def main():
     agent = Agent()
+    episode_rewards = []
+    episode_reward = 0.0
+    if plt:
+        plt.ion()
+        fig, ax = plt.subplots()
     while True:
         line = sys.stdin.readline()
         if not line:
@@ -114,11 +124,22 @@ def main():
             agent.remember(agent.last_state, agent.last_action, reward, state, done)
             agent.replay()
 
+        episode_reward += reward
+
         action = agent.act(state)
         sys.stdout.write(str(action) + "\n")
         sys.stdout.flush()
 
         if done:
+            episode_rewards.append(episode_reward)
+            if plt:
+                ax.clear()
+                ax.plot(episode_rewards)
+                ax.set_xlabel("Episode")
+                ax.set_ylabel("Total Reward")
+                ax.set_title("QLearningNavigator Reward Progress")
+                plt.pause(0.001)
+            episode_reward = 0.0
             agent.last_state = None
             agent.last_action = None
             agent.last_distance = None
