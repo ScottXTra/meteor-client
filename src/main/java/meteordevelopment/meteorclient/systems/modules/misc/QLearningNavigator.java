@@ -29,7 +29,6 @@ public class QLearningNavigator extends Module {
     private BufferedReader reader;
 
     private double goalX, goalY, goalZ;
-    private double prevDist;
     private int step;
 
     private long startTime;
@@ -118,7 +117,6 @@ public class QLearningNavigator extends Module {
         goalX = mc.player.getX() + ThreadLocalRandom.current().nextDouble(-20, 20);
         goalZ = mc.player.getZ() + ThreadLocalRandom.current().nextDouble(-20, 20);
         goalY = mc.player.getY();
-        prevDist = Double.MAX_VALUE;
         step = 0;
         startTime = System.currentTimeMillis();
         info("New goal X: %.1f Y: %.1f Z: %.1f", goalX, goalY, goalZ);
@@ -134,7 +132,6 @@ public class QLearningNavigator extends Module {
         double vz = mc.player.getVelocity().z;
 
         double dist = Math.hypot(goalX - px, goalZ - pz);
-        double reward = (prevDist == Double.MAX_VALUE ? 0 : prevDist - dist) - 0.01;
         boolean reached = dist < 1.5;
         boolean timeout = step++ >= MAX_STEPS;
         boolean done = reached || timeout;
@@ -146,8 +143,8 @@ public class QLearningNavigator extends Module {
         obj.addProperty("vz", vz);
         obj.addProperty("gx", goalX);
         obj.addProperty("gz", goalZ);
-        obj.addProperty("reward", reward);
         obj.addProperty("done", done);
+        obj.addProperty("reached", reached);
 
         try {
             writer.write(obj.toString());
@@ -174,8 +171,6 @@ public class QLearningNavigator extends Module {
             error("Python error: %s", e.getMessage());
             toggle();
         }
-
-        prevDist = dist;
     }
 
     @EventHandler

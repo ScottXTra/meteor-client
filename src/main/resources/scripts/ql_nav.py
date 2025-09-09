@@ -133,20 +133,26 @@ def main():
             break
         data = json.loads(line)
         state, dist = agent.normalize(data)
-        reward = data.get("reward", 0.0)
         done = data.get("done", False)
+        reached = data.get("reached", False)
 
         if agent.last_distance is None:
             agent.last_distance = dist
 
-        if reward == 0.0:
-            reward = agent.last_distance - dist - 0.01
+        if torch:
+            dx, dz, vx, vz = state.tolist()
+        else:
+            dx, dz, vx, vz = state
+
+        progress = agent.last_distance - dist
+        alignment = dx * vx + dz * vz
+        reward = progress * 10 + alignment * 5 - 0.05
 
         if done:
-            if dist < 0.02:
+            if reached:
                 reward += 100.0
             else:
-                reward -= 10.0
+                reward -= 25.0
 
         if agent.last_state is not None:
             agent.remember(agent.last_state, agent.last_action, reward, state, done)
