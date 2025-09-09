@@ -30,6 +30,7 @@ public class QLearningNavigator extends Module {
     private BufferedReader reader;
 
     private double goalX, goalY, goalZ;
+    private double startX, startZ;
     private int step;
     private int nearGoalTicks;
     private double lastDist;
@@ -117,8 +118,10 @@ public class QLearningNavigator extends Module {
     }
 
     private void resetGoal() {
-        goalX = mc.player.getX() + ThreadLocalRandom.current().nextDouble(-20, 20);
-        goalZ = mc.player.getZ() + ThreadLocalRandom.current().nextDouble(-20, 20);
+        startX = mc.player.getX();
+        startZ = mc.player.getZ();
+        goalX = startX + ThreadLocalRandom.current().nextDouble(-20, 20);
+        goalZ = startZ + ThreadLocalRandom.current().nextDouble(-20, 20);
         goalY = mc.player.getY();
         step = 0;
         nearGoalTicks = 0;
@@ -136,7 +139,12 @@ public class QLearningNavigator extends Module {
         double vx = mc.player.getVelocity().x;
         double vz = mc.player.getVelocity().z;
 
-        double dist = Math.hypot(goalX - px, goalZ - pz);
+        double pxRel = px - startX;
+        double pzRel = pz - startZ;
+        double gxRel = goalX - startX;
+        double gzRel = goalZ - startZ;
+
+        double dist = Math.hypot(gxRel - pxRel, gzRel - pzRel);
         if (dist < 3.0) {
             if (Math.abs(lastDist - dist) < 0.01) nearGoalTicks++;
             else nearGoalTicks = 0;
@@ -149,12 +157,12 @@ public class QLearningNavigator extends Module {
         boolean done = reached || timeout || stuck;
 
         JsonObject obj = new JsonObject();
-        obj.addProperty("px", px);
-        obj.addProperty("pz", pz);
+        obj.addProperty("px", pxRel);
+        obj.addProperty("pz", pzRel);
         obj.addProperty("vx", vx);
         obj.addProperty("vz", vz);
-        obj.addProperty("gx", goalX);
-        obj.addProperty("gz", goalZ);
+        obj.addProperty("gx", gxRel);
+        obj.addProperty("gz", gzRel);
         obj.addProperty("done", done);
         obj.addProperty("reached", reached);
         obj.addProperty("stuck", stuck);
