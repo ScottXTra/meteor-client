@@ -123,25 +123,44 @@ class Agent:
         return self.epsilon_start + (self.epsilon_end - self.epsilon_start) * frac
 
     def save(self, path):
+        """Lightweight, non-blocking, atomic checkpoint (no replay buffer)."""
         if not torch:
             return
-        if self._save_thread and self._save_thread.is_alive():
+        # coalesce saves if one is already running
+        if getattr(self, "_save_thread", None) and self._save_thread.is_alive():
             return
 
         def _save():
+            # Put model weights on CPU to avoid CUDA syncs and make the file device-agnostic
+            model_cpu  = {k: v.detach().cpu() for k, v in self.model.state_dict().items()}
+            target_cpu = {k: v.detach().cpu() for k, v in self.target_model.state_dict().items()}
+
             data = {
-                "model": self.model.state_dict(),
-                "target_model": self.target_model.state_dict(),
-                "optimizer": self.optimizer.state_dict(),
-                "memory": list(self.memory),
+                "model": model_cpu,
+                "target_model": target_cpu,
+                "optimizer": self.optimizer.state_dict(),  # maps fine on load()
+                # intentionally NOT saving the replay buffer
                 "global_step": self.global_step,
                 "eps_params": (self.epsilon_start, self.epsilon_end, self.epsilon_decay_steps),
                 "meta": {
                     "state_dim": STATE_DIM,
-                    "heads": [MOVE_DIM, STRAFE_DIM, YAW_DIM, PITCH_DIM, JUMP_DIM]
-                }
+                    "heads": [MOVE_DIM, STRAFE_DIM, YAW_DIM, PITCH_DIM, JUMP_DIM],
+                    "replay_saved": False,           # for clarity/debugging
+                    "format": "v2_no_replay",        # version tag (optional)
+                },
             }
-            torch.save(data, path)
+
+            # Atomic write: save to temp then replace to avoid half-written (truncated ZIP) files
+            tmp = f"{path}.tmp"
+            try:
+                torch.save(data, tmp)
+                os.replace(tmp, path)
+            finally:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
 
         self._save_thread = threading.Thread(target=_save, daemon=True)
         self._save_thread.start()
@@ -164,8 +183,10 @@ class Agent:
         else:
             self.target_model.load_state_dict(self.model.state_dict())
         if "optimizer" in data:
-            try: self.optimizer.load_state_dict(data["optimizer"])
-            except Exception: pass
+            try:
+                self.optimizer.load_state_dict(data["optimizer"])
+            except Exception:
+                pass
         if "memory" in data:
             self.memory = deque(data["memory"], maxlen=100_000)
         self.global_step = data.get("global_step", 0)
@@ -316,7 +337,8 @@ def main():
             plt.pause(0.001)
 
         try:
-            line = q.get(timeout=0.0)
+            # tiny timeout prevents busy-spin and yields the GIL regularly
+            line = q.get(timeout=0.01)
         except Empty:
             continue
 
