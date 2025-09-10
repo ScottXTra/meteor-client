@@ -1,6 +1,7 @@
 package meteordevelopment.meteorclient.systems.modules.misc;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
@@ -18,15 +19,18 @@ import java.nio.file.StandardCopyOption;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Module that communicates with a Python Q-learning script to train a bot to reach random goals.
- * When enabled, player state and target coordinates are streamed to the Python process which
- * responds with movement actions. Debug information is printed to the Minecraft chat.
+ * Multi-head DQN navigator with composite actions:
+ * move, strafe, yaw, pitch, jump can be applied in the same tick.
  */
 public class QLearningNavigator extends Module {
     private static final double MIN_GOAL_DISTANCE = 3.0;
-    private static final double GOAL_SPAWN_RANGE = 20.0;
-    private static final int MAX_STEPS = 60;
-    private static final int STUCK_TICKS = 20;
+    private static final double MAX_GOAL_SPAWN_RANGE = 20.0;
+    private static final double START_GOAL_SPAWN_RANGE = 8.0;
+
+    private static final double YAW_STEP_DEG = 7.5;
+    private static final double PITCH_STEP_DEG = 5.0;
+
+    private static final int STUCK_TICKS = 30;
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final Setting<Boolean> evaluation = sgGeneral.add(new BoolSetting.Builder()
@@ -43,15 +47,18 @@ public class QLearningNavigator extends Module {
     private double goalX, goalY, goalZ;
     private double startX, startZ;
     private int step;
-    private int nearGoalTicks;
+    private int episodeMaxSteps;
+    private int noProgressTicks;
     private double lastDist;
 
     private long startTime;
     private long totalTime;
     private int goalsReached;
 
+    private double goalSpawnRange = START_GOAL_SPAWN_RANGE;
+
     public QLearningNavigator() {
-        super(Categories.Misc, "qlearning-navigator", "Trains a Q-learning agent to navigate to a goal.");
+        super(Categories.Misc, "qlearning-navigator", "Trains a DQN agent to navigate to a goal with composite actions.");
     }
 
     @Override
@@ -71,6 +78,7 @@ public class QLearningNavigator extends Module {
             File checkpoint = new File(MeteorClient.FOLDER, "ql_nav_checkpoint.pth");
             if (checkpoint.exists()) info("Loading checkpoint from %s", checkpoint.getAbsolutePath());
             else info("No checkpoint found, starting fresh.");
+
             python = new ProcessBuilder("python", tmp.getAbsolutePath(), checkpoint.getAbsolutePath(), evaluation.get().toString()).start();
             writer = new BufferedWriter(new OutputStreamWriter(python.getOutputStream()));
             reader = new BufferedReader(new InputStreamReader(python.getInputStream()));
@@ -79,11 +87,8 @@ public class QLearningNavigator extends Module {
             new Thread(() -> {
                 try (BufferedReader err = new BufferedReader(new InputStreamReader(python.getErrorStream()))) {
                     String line;
-                    while ((line = err.readLine()) != null) {
-                        error("PY: %s", line);
-                    }
-                } catch (IOException ignored) {
-                }
+                    while ((line = err.readLine()) != null) error("PY: %s", line);
+                } catch (IOException ignored) {}
             }, "ql-nav-py").start();
 
             totalTime = 0;
@@ -112,49 +117,74 @@ public class QLearningNavigator extends Module {
     private void unpress() {
         mc.options.forwardKey.setPressed(false);
         mc.options.backKey.setPressed(false);
-        mc.options.leftKey.setPressed(false);
-        mc.options.rightKey.setPressed(false);
+        mc.options.leftKey.setPressed(false);   // strafe left
+        mc.options.rightKey.setPressed(false);  // strafe right
         mc.options.jumpKey.setPressed(false);
     }
 
-    private void applyAction(int action) {
+    // Composite action application.
+    // move: 0 idle, 1 forward, 2 back
+    // strafe: 0 idle, 1 left, 2 right
+    // yaw: 0 none, 1 left, 2 right
+    // pitch: 0 none, 1 up, 2 down
+    // jump: 0 no, 1 yes
+    private void applyCompositeAction(int move, int strafe, int yaw, int pitch, int jump) {
         unpress();
-        switch (action) {
-            case 0 -> mc.options.forwardKey.setPressed(true);
-            case 1 -> mc.options.backKey.setPressed(true);
-            case 2 -> mc.options.leftKey.setPressed(true);
-            case 3 -> mc.options.rightKey.setPressed(true);
-            case 4 -> {
-            }
-            case 5 -> mc.options.jumpKey.setPressed(true);
-            case 6 -> mc.player.setYaw(mc.player.getYaw() - 45f);
-            case 7 -> mc.player.setYaw(mc.player.getYaw() + 45f);
-            default -> {
-            }
-        }
+
+        // Movement keys (can co-exist)
+        if (move == 1) mc.options.forwardKey.setPressed(true);
+        else if (move == 2) mc.options.backKey.setPressed(true);
+
+        if (strafe == 1) mc.options.leftKey.setPressed(true);
+        else if (strafe == 2) mc.options.rightKey.setPressed(true);
+
+        if (jump == 1) mc.options.jumpKey.setPressed(true);
+
+        // View control: small continuous adjustments
+        float curYaw = mc.player.getYaw();
+        float curPitch = mc.player.getPitch();
+
+        if (yaw == 1) curYaw -= (float) YAW_STEP_DEG;
+        else if (yaw == 2) curYaw += (float) YAW_STEP_DEG;
+
+        if (pitch == 1) curPitch -= (float) PITCH_STEP_DEG;   // look up
+        else if (pitch == 2) curPitch += (float) PITCH_STEP_DEG; // look down
+
+        // Clamp pitch to [-90, 90]
+        if (curPitch < -90f) curPitch = -90f;
+        if (curPitch > 90f) curPitch = 90f;
+
+        mc.player.setYaw(curYaw);
+        mc.player.setPitch(curPitch);
     }
 
     private void resetGoal() {
-    startX = mc.player.getX();
-    startZ = mc.player.getZ();
+        startX = mc.player.getX();
+        startZ = mc.player.getZ();
 
-    // Sample offsets until the horizontal distance is >= MIN_GOAL_DISTANCE
-    double dx, dz;
-    do {
-        dx = ThreadLocalRandom.current().nextDouble(-GOAL_SPAWN_RANGE, GOAL_SPAWN_RANGE);
-        dz = ThreadLocalRandom.current().nextDouble(-GOAL_SPAWN_RANGE, GOAL_SPAWN_RANGE);
-    } while ((dx * dx + dz * dz) < (MIN_GOAL_DISTANCE * MIN_GOAL_DISTANCE));
+        double dx, dz;
+        do {
+            dx = ThreadLocalRandom.current().nextDouble(-goalSpawnRange, goalSpawnRange);
+            dz = ThreadLocalRandom.current().nextDouble(-goalSpawnRange, goalSpawnRange);
+        } while ((dx * dx + dz * dz) < (MIN_GOAL_DISTANCE * MIN_GOAL_DISTANCE));
 
-    goalX = startX + dx;
-    goalZ = startZ + dz;
-    goalY = mc.player.getY();
+        goalX = startX + dx;
+        goalZ = startZ + dz;
+        goalY = mc.player.getY();
 
-    step = 0;
-    nearGoalTicks = 0;
-    lastDist = Double.MAX_VALUE;
-    startTime = System.currentTimeMillis();
-    info("New goal X: %.1f Y: %.1f Z: %.1f", goalX, goalY, goalZ);
-}
+        double initialDistance = Math.hypot(dx, dz);
+
+        // Allocate time based on distance
+        episodeMaxSteps = Math.min(600, Math.max(120, (int) Math.round(initialDistance * 6 + 40)));
+
+        step = 0;
+        noProgressTicks = 0;
+        lastDist = initialDistance;
+        startTime = System.currentTimeMillis();
+
+        info("New goal X: %.1f Y: %.1f Z: %.1f | dist=%.1f | steps=%d | range=%.1f",
+            goalX, goalY, goalZ, initialDistance, episodeMaxSteps, goalSpawnRange);
+    }
 
     @EventHandler
     private void onTick(TickEvent.Pre event) {
@@ -171,16 +201,16 @@ public class QLearningNavigator extends Module {
         double gxRel = goalX - startX;
         double gzRel = goalZ - startZ;
 
+        // World distance
         double dist = Math.hypot(gxRel - pxRel, gzRel - pzRel);
-        if (dist < 3.0) {
-            if (Math.abs(lastDist - dist) < 0.01) nearGoalTicks++;
-            else nearGoalTicks = 0;
-        } else nearGoalTicks = 0;
+        double progress = lastDist - dist;
+        if (Math.abs(progress) < 0.02) noProgressTicks++;
+        else noProgressTicks = 0;
         lastDist = dist;
 
         boolean reached = dist < 1.5;
-        boolean timeout = step++ >= MAX_STEPS;
-        boolean stuck = nearGoalTicks >= STUCK_TICKS;
+        boolean timeout = step++ >= episodeMaxSteps;
+        boolean stuck = noProgressTicks >= STUCK_TICKS;
         boolean done = reached || timeout || stuck;
 
         JsonObject obj = new JsonObject();
@@ -191,6 +221,8 @@ public class QLearningNavigator extends Module {
         obj.addProperty("yaw", yaw);
         obj.addProperty("gx", gxRel);
         obj.addProperty("gz", gzRel);
+        obj.addProperty("dist", dist);
+        obj.addProperty("steps_left", Math.max(0, episodeMaxSteps - step));
         obj.addProperty("done", done);
         obj.addProperty("reached", reached);
         obj.addProperty("stuck", stuck);
@@ -202,8 +234,19 @@ public class QLearningNavigator extends Module {
 
             String line = reader.readLine();
             if (line != null && !line.isEmpty()) {
-                int action = Integer.parseInt(line.trim());
-                applyAction(action);
+                // Expect JSON composite action
+                try {
+                    JsonObject act = JsonParser.parseString(line.trim()).getAsJsonObject();
+                    int move   = act.has("move")  ? act.get("move").getAsInt()  : 0;
+                    int strafe = act.has("strafe")? act.get("strafe").getAsInt(): 0;
+                    int yawA   = act.has("yaw")   ? act.get("yaw").getAsInt()   : 0;
+                    int pitchA = act.has("pitch") ? act.get("pitch").getAsInt() : 0;
+                    int jump   = act.has("jump")  ? act.get("jump").getAsInt()  : 0;
+                    applyCompositeAction(move, strafe, yawA, pitchA, jump);
+                } catch (Exception parseErr) {
+                    // Backward-compat: if it's a single int, just idle.
+                    applyCompositeAction(0, 0, 0, 0, 0);
+                }
             }
 
             if (done) {
@@ -213,10 +256,13 @@ public class QLearningNavigator extends Module {
                     goalsReached++;
                     double avg = totalTime / (double) goalsReached / 1000.0;
                     info("Goal reached in %d steps (%.2fs). Avg time: %.2fs", step, elapsed / 1000.0, avg);
+                    goalSpawnRange = Math.min(MAX_GOAL_SPAWN_RANGE, goalSpawnRange + 1.0);
                 } else if (stuck) {
-                    info("Episode ended due to lack of progress near goal.");
+                    info("Episode ended due to lack of progress.");
+                    goalSpawnRange = Math.max(6.0, goalSpawnRange - 0.5);
                 } else {
                     info("Episode timed out.");
+                    goalSpawnRange = Math.max(6.0, goalSpawnRange - 0.5);
                 }
                 resetGoal();
             }
