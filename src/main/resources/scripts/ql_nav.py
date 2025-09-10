@@ -92,6 +92,7 @@ class Agent:
         self.last_distance = None
         self.prev_yaw_err = None
         self.start_distance = None
+        self._save_thread = None
 
     def current_epsilon(self):
         if self.eval_mode:
@@ -104,14 +105,22 @@ class Agent:
     def save(self, path):
         if not torch:
             return
-        torch.save({
-            "model": self.model.state_dict(),
-            "target_model": self.target_model.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-            "memory": list(self.memory),
-            "global_step": self.global_step,
-            "eps_params": (self.epsilon_start, self.epsilon_end, self.epsilon_decay_steps),
-        }, path)
+        if self._save_thread and self._save_thread.is_alive():
+            return
+
+        def _save():
+            data = {
+                "model": self.model.state_dict(),
+                "target_model": self.target_model.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "memory": list(self.memory),
+                "global_step": self.global_step,
+                "eps_params": (self.epsilon_start, self.epsilon_end, self.epsilon_decay_steps),
+            }
+            torch.save(data, path)
+
+        self._save_thread = threading.Thread(target=_save, daemon=True)
+        self._save_thread.start()
 
     def load(self, path):
         if not torch or not os.path.exists(path):
