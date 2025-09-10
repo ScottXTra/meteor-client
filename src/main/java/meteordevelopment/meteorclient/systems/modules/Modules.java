@@ -582,6 +582,6 @@ public class Modules extends System<Modules> {
         add(new Spam());
         add(new Swarm());
         add(new PythonExample());
-        add(new QLearningNavigator());
+        add(new QPathFinder());
     }
 }

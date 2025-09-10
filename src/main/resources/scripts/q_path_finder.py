@@ -307,7 +307,7 @@ class Agent:
 # Main loop
 # -----------------------------
 def main():
-    checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "ql_nav_checkpoint.pth"
+    checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "q_path_finder_checkpoint.pth"
     eval_mode = len(sys.argv) > 2 and str(sys.argv[2]).lower() == "true"
 
     agent = Agent()
@@ -402,7 +402,7 @@ def main():
                 ax.plot(rolling_rewards, label="20-episode rolling avg")
                 ax.set_xlabel("Episode")
                 ax.set_ylabel("Total Reward")
-                ax.set_title("QLearningNavigator Reward Progress")
+                ax.set_title("QPathFinder Reward Progress")
                 ax.legend()
                 fig.canvas.draw_idle()
                 fig.canvas.flush_events()

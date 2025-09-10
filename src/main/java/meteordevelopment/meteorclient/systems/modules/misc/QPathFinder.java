@@ -22,7 +22,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * Multi-head DQN navigator with composite actions:
  * move, strafe, yaw, pitch, jump can be applied in the same tick.
  */
-public class QLearningNavigator extends Module {
+public class QPathFinder extends Module {
     private static final double MIN_GOAL_DISTANCE = 3.0;
     private static final double MAX_GOAL_SPAWN_RANGE = 20.0;
     private static final double START_GOAL_SPAWN_RANGE = 8.0;
@@ -57,25 +57,25 @@ public class QLearningNavigator extends Module {
 
     private double goalSpawnRange = START_GOAL_SPAWN_RANGE;
 
-    public QLearningNavigator() {
-        super(Categories.Misc, "qlearning-navigator", "Trains a DQN agent to navigate to a goal with composite actions.");
+    public QPathFinder() {
+        super(Categories.Misc, "q-path-finder", "Trains a DQN agent to navigate to a goal with composite actions.");
     }
 
     @Override
     public void onActivate() {
         try {
-            InputStream script = QLearningNavigator.class.getResourceAsStream("/scripts/ql_nav.py");
+            InputStream script = QPathFinder.class.getResourceAsStream("/scripts/q_path_finder.py");
             if (script == null) {
                 error("Could not find Python script.");
                 toggle();
                 return;
             }
 
-            File tmp = File.createTempFile("ql_nav", ".py");
+            File tmp = File.createTempFile("q_path_finder", ".py");
             tmp.deleteOnExit();
             Files.copy(script, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
-            File checkpoint = new File(MeteorClient.FOLDER, "ql_nav_checkpoint.pth");
+            File checkpoint = new File(MeteorClient.FOLDER, "q_path_finder_checkpoint.pth");
             if (checkpoint.exists()) info("Loading checkpoint from %s", checkpoint.getAbsolutePath());
             else info("No checkpoint found, starting fresh.");
 
@@ -89,7 +89,7 @@ public class QLearningNavigator extends Module {
                     String line;
                     while ((line = err.readLine()) != null) error("PY: %s", line);
                 } catch (IOException ignored) {}
-            }, "ql-nav-py").start();
+            }, "q-path-finder-py").start();
 
             totalTime = 0;
             goalsReached = 0;
