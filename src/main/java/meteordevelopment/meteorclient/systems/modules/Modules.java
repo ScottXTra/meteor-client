@@ -581,6 +581,7 @@ public class Modules extends System<Modules> {
         add(new SoundBlocker());
         add(new Spam());
         add(new Swarm());
+        add(new MovementLogger());
         add(new PythonExample());
         add(new QPathFinder());
     }
