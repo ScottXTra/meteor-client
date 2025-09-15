@@ -583,6 +583,7 @@ public class Modules extends System<Modules> {
         add(new Swarm());
         add(new MovementLogger());
         add(new PythonExample());
+        add(new ActivityTrainer());
         add(new QPathFinder());
     }
 }
