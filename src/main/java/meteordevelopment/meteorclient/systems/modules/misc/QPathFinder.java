@@ -9,9 +9,14 @@ import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.systems.modules.render.Freecam;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.BlockPos;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -57,12 +62,22 @@ public class QPathFinder extends Module {
 
     private double goalSpawnRange = START_GOAL_SPAWN_RANGE;
 
+    private BlockPos evaluationTarget;
+    private Freecam freecam;
+    private boolean toggledFreecam;
+
     public QPathFinder() {
         super(Categories.Misc, "q-path-finder", "Trains a DQN agent to navigate to a goal with composite actions.");
     }
 
     @Override
     public void onActivate() {
+        evaluationTarget = null;
+        toggledFreecam = false;
+        freecam = null;
+
+        if (evaluation.get()) enableEvaluationFreecam();
+
         try {
             InputStream script = QPathFinder.class.getResourceAsStream("/scripts/q_path_finder.py");
             if (script == null) {
@@ -105,6 +120,8 @@ public class QPathFinder extends Module {
     public void onDeactivate() {
         stopPython();
         unpress();
+        disableEvaluationFreecam();
+        evaluationTarget = null;
     }
 
     private void stopPython() {
@@ -162,15 +179,34 @@ public class QPathFinder extends Module {
         startX = mc.player.getX();
         startZ = mc.player.getZ();
 
-        double dx, dz;
-        do {
-            dx = ThreadLocalRandom.current().nextDouble(-goalSpawnRange, goalSpawnRange);
-            dz = ThreadLocalRandom.current().nextDouble(-goalSpawnRange, goalSpawnRange);
-        } while ((dx * dx + dz * dz) < (MIN_GOAL_DISTANCE * MIN_GOAL_DISTANCE));
+        boolean evaluationMode = evaluation.get();
 
-        goalX = startX + dx;
-        goalZ = startZ + dz;
-        goalY = mc.player.getY();
+        double dx;
+        double dz;
+
+        if (evaluationMode) {
+            boolean hadTarget = evaluationTarget != null;
+
+            if (!updateEvaluationGoalFromCrosshair(!hadTarget)) {
+                if (!hadTarget) {
+                    error("Evaluation goal requires aiming at a block.");
+                    toggle();
+                    return;
+                }
+            }
+
+            dx = goalX - startX;
+            dz = goalZ - startZ;
+        } else {
+            do {
+                dx = ThreadLocalRandom.current().nextDouble(-goalSpawnRange, goalSpawnRange);
+                dz = ThreadLocalRandom.current().nextDouble(-goalSpawnRange, goalSpawnRange);
+            } while ((dx * dx + dz * dz) < (MIN_GOAL_DISTANCE * MIN_GOAL_DISTANCE));
+
+            goalX = startX + dx;
+            goalZ = startZ + dz;
+            goalY = mc.player.getY();
+        }
 
         double initialDistance = Math.hypot(dx, dz);
 
@@ -182,13 +218,22 @@ public class QPathFinder extends Module {
         lastDist = initialDistance;
         startTime = System.currentTimeMillis();
 
-        info("New goal X: %.1f Y: %.1f Z: %.1f | dist=%.1f | steps=%d | range=%.1f",
-            goalX, goalY, goalZ, initialDistance, episodeMaxSteps, goalSpawnRange);
+        if (evaluationMode) {
+            info("Evaluation goal X: %.1f Y: %.1f Z: %.1f | dist=%.1f | steps=%d",
+                goalX, goalY, goalZ, initialDistance, episodeMaxSteps);
+        } else {
+            info("New goal X: %.1f Y: %.1f Z: %.1f | dist=%.1f | steps=%d | range=%.1f",
+                goalX, goalY, goalZ, initialDistance, episodeMaxSteps, goalSpawnRange);
+        }
     }
 
     @EventHandler
     private void onTick(TickEvent.Pre event) {
-        if (python == null || mc.player == null) return;
+        if (mc.player == null) return;
+
+        if (evaluation.get()) handleEvaluationTargetUpdate();
+
+        if (python == null) return;
 
         double px = mc.player.getX();
         double pz = mc.player.getZ();
@@ -256,13 +301,20 @@ public class QPathFinder extends Module {
                     goalsReached++;
                     double avg = totalTime / (double) goalsReached / 1000.0;
                     info("Goal reached in %d steps (%.2fs). Avg time: %.2fs", step, elapsed / 1000.0, avg);
-                    goalSpawnRange = Math.min(MAX_GOAL_SPAWN_RANGE, goalSpawnRange + 1.0);
+
+                    if (!evaluation.get()) goalSpawnRange = Math.min(MAX_GOAL_SPAWN_RANGE, goalSpawnRange + 1.0);
                 } else if (stuck) {
-                    info("Episode ended due to lack of progress.");
-                    goalSpawnRange = Math.max(6.0, goalSpawnRange - 0.5);
+                    if (evaluation.get()) info("Episode ended due to lack of progress.");
+                    else {
+                        info("Episode ended due to lack of progress.");
+                        goalSpawnRange = Math.max(6.0, goalSpawnRange - 0.5);
+                    }
                 } else {
-                    info("Episode timed out.");
-                    goalSpawnRange = Math.max(6.0, goalSpawnRange - 0.5);
+                    if (evaluation.get()) info("Episode timed out.");
+                    else {
+                        info("Episode timed out.");
+                        goalSpawnRange = Math.max(6.0, goalSpawnRange - 0.5);
+                    }
                 }
                 resetGoal();
             }
@@ -270,6 +322,56 @@ public class QPathFinder extends Module {
             error("Python error: %s", e.getMessage());
             toggle();
         }
+    }
+
+    private void handleEvaluationTargetUpdate() {
+        if (!(mc.crosshairTarget instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) return;
+
+        BlockPos target = hit.getBlockPos().up();
+        if (!target.equals(evaluationTarget)) {
+            evaluationTarget = target;
+            resetGoal();
+        }
+    }
+
+    private boolean updateEvaluationGoalFromCrosshair(boolean requireTarget) {
+        if (mc.crosshairTarget instanceof BlockHitResult hit && hit.getType() == HitResult.Type.BLOCK) {
+            evaluationTarget = hit.getBlockPos().up();
+        } else if (requireTarget && evaluationTarget == null) {
+            return false;
+        }
+
+        if (evaluationTarget == null) return false;
+
+        goalX = evaluationTarget.getX() + 0.5;
+        goalY = evaluationTarget.getY();
+        goalZ = evaluationTarget.getZ() + 0.5;
+        return true;
+    }
+
+    private void enableEvaluationFreecam() {
+        freecam = Modules.get().get(Freecam.class);
+        if (freecam == null) {
+            error("Freecam module is not available.");
+            return;
+        }
+
+        if (!freecam.isActive()) {
+            freecam.toggle();
+            toggledFreecam = true;
+        }
+    }
+
+    private void disableEvaluationFreecam() {
+        if (!toggledFreecam) {
+            freecam = null;
+            return;
+        }
+
+        if (freecam == null) freecam = Modules.get().get(Freecam.class);
+        if (freecam != null && freecam.isActive()) freecam.toggle();
+        toggledFreecam = false;
+        freecam = null;
     }
 
     @EventHandler
