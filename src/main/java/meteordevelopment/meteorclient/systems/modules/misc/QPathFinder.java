@@ -13,10 +13,13 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.render.Freecam;
 import meteordevelopment.orbit.EventHandler;
 import meteordevelopment.meteorclient.utils.render.color.Color;
+import net.minecraft.client.render.Camera;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.RaycastContext;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -31,6 +34,7 @@ public class QPathFinder extends Module {
     private static final double MIN_GOAL_DISTANCE = 3.0;
     private static final double MAX_GOAL_SPAWN_RANGE = 20.0;
     private static final double START_GOAL_SPAWN_RANGE = 8.0;
+    private static final double EVALUATION_RAYCAST_RANGE = 60.0;
 
     private static final double YAW_STEP_DEG = 7.5;
     private static final double PITCH_STEP_DEG = 5.0;
@@ -325,7 +329,8 @@ public class QPathFinder extends Module {
     }
 
     private void handleEvaluationTargetUpdate() {
-        if (!(mc.crosshairTarget instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) return;
+        BlockHitResult hit = raycastEvaluationTarget();
+        if (hit == null) return;
 
         BlockPos target = hit.getBlockPos().up();
         if (!target.equals(evaluationTarget)) {
@@ -335,7 +340,8 @@ public class QPathFinder extends Module {
     }
 
     private boolean updateEvaluationGoalFromCrosshair(boolean requireTarget) {
-        if (mc.crosshairTarget instanceof BlockHitResult hit && hit.getType() == HitResult.Type.BLOCK) {
+        BlockHitResult hit = raycastEvaluationTarget();
+        if (hit != null) {
             evaluationTarget = hit.getBlockPos().up();
         } else if (requireTarget && evaluationTarget == null) {
             return false;
@@ -347,6 +353,25 @@ public class QPathFinder extends Module {
         goalY = evaluationTarget.getY();
         goalZ = evaluationTarget.getZ() + 0.5;
         return true;
+    }
+
+    private BlockHitResult raycastEvaluationTarget() {
+        if (mc.player == null || mc.world == null) return null;
+
+        Camera camera = mc.gameRenderer.getCamera();
+        Vec3d start = camera.getPos();
+        Vec3d end = start.add(Vec3d.fromPolar(camera.getPitch(), camera.getYaw()).multiply(EVALUATION_RAYCAST_RANGE));
+
+        BlockHitResult hitResult = mc.world.raycast(new RaycastContext(
+            start,
+            end,
+            RaycastContext.ShapeType.OUTLINE,
+            RaycastContext.FluidHandling.NONE,
+            mc.player
+        ));
+
+        if (hitResult.getType() != HitResult.Type.BLOCK) return null;
+        return hitResult;
     }
 
     private void enableEvaluationFreecam() {
