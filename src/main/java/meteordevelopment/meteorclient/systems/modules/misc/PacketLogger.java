@@ -25,6 +25,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -33,6 +34,17 @@ import java.util.Set;
 public class PacketLogger extends Module {
     private BufferedWriter writer;
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
+    private static final Map<String, String> FIELD_NAME_OVERRIDES = Map.ofEntries(
+        Map.entry("field_12889", "x"),
+        Map.entry("field_12886", "y"),
+        Map.entry("field_12884", "z"),
+        Map.entry("field_12887", "yaw"),
+        Map.entry("field_12885", "pitch"),
+        Map.entry("field_29179", "onGround"),
+        Map.entry("field_52335", "horizontalCollision"),
+        Map.entry("field_12890", "changePosition"),
+        Map.entry("field_12888", "changeLook")
+    );
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
@@ -112,7 +124,8 @@ public class PacketLogger extends Module {
                 field.setAccessible(true);
                 try {
                     Object value = field.get(packet);
-                    logBuilder.append(" ").append(field.getName()).append("=").append(value);
+                    String fieldName = FIELD_NAME_OVERRIDES.getOrDefault(field.getName(), field.getName());
+                    logBuilder.append(" ").append(fieldName).append("=").append(value);
                 } catch (IllegalAccessException ignored) {
                 }
             }
@@ -156,7 +169,8 @@ public class PacketLogger extends Module {
                 field.setAccessible(true);
                 try {
                     Object value = field.get(packet);
-                    logBuilder.append(" ").append(field.getName()).append("=").append(value);
+                    String fieldName = FIELD_NAME_OVERRIDES.getOrDefault(field.getName(), field.getName());
+                    logBuilder.append(" ").append(fieldName).append("=").append(value);
                 } catch (IllegalAccessException ignored) {
                 }
             }
