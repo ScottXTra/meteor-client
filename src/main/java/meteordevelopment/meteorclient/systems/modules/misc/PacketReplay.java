@@ -306,8 +306,13 @@ public class PacketReplay extends Module {
     private void rebuildPacketTable(GuiTheme theme, WTable table) {
         table.clear();
 
-        if (recordedPackets.isEmpty()) {
-            table.add(theme.label("No recorded packets."));
+        List<RecordedPacket> movementPackets = new ArrayList<>();
+        for (RecordedPacket recordedPacket : recordedPackets) {
+            if (recordedPacket.isMovement()) movementPackets.add(recordedPacket);
+        }
+
+        if (movementPackets.isEmpty()) {
+            table.add(theme.label("No recorded movement packets."));
             table.row();
             return;
         }
@@ -318,8 +323,8 @@ public class PacketReplay extends Module {
         table.add(theme.label("Position")).expandCellX();
         table.row();
 
-        for (int i = 0; i < recordedPackets.size(); i++) {
-            RecordedPacket entry = recordedPackets.get(i);
+        for (int i = 0; i < movementPackets.size(); i++) {
+            RecordedPacket entry = movementPackets.get(i);
 
             table.add(theme.label(Integer.toString(i + 1)));
             table.add(theme.label(String.format(Locale.US, "%d ms", entry.getTimestamp())));
@@ -335,12 +340,6 @@ public class PacketReplay extends Module {
                 } else {
                     table.add(theme.label("Not editable")).expandCellX();
                 }
-            } else if (entry.getPacket() != null) {
-                table.add(theme.label(entry.getPacket().getClass().getSimpleName())).expandCellX();
-                table.add(theme.label("N/A")).expandCellX();
-            } else {
-                table.add(theme.label("Unknown")).expandCellX();
-                table.add(theme.label("N/A")).expandCellX();
             }
 
             table.row();
