@@ -8,6 +8,16 @@ package meteordevelopment.meteorclient.systems.modules.misc;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.gui.GuiTheme;
+import meteordevelopment.meteorclient.gui.widgets.WLabel;
+import meteordevelopment.meteorclient.gui.widgets.WWidget;
+import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
+import meteordevelopment.meteorclient.gui.widgets.containers.WTable;
+import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
+import meteordevelopment.meteorclient.gui.widgets.containers.WView;
+import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
+import meteordevelopment.meteorclient.gui.widgets.pressable.WMinus;
+import meteordevelopment.meteorclient.gui.widgets.pressable.WPlus;
 import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.EnumSetting;
@@ -20,12 +30,16 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.network.packet.Packet;
 import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class PacketReplay extends Module {
+    private static final double POSITION_INCREMENT = 0.1;
+
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
     private final Setting<Mode> mode = sgGeneral.add(new EnumSetting.Builder<Mode>()
@@ -63,6 +77,26 @@ public class PacketReplay extends Module {
 
     public PacketReplay() {
         super(Categories.Misc, "packet-replay", "Record outgoing packets and replay them later.");
+    }
+
+    @Override
+    public WWidget getWidget(GuiTheme theme) {
+        WView view = theme.view();
+
+        WLabel countLabel = view.add(theme.label(packetCountText())).expandX().widget();
+
+        WTable table = view.add(theme.table()).expandX().widget();
+        table.horizontalSpacing = 6;
+        table.verticalSpacing = 4;
+        rebuildPacketTable(theme, table);
+
+        WButton refresh = view.add(theme.button("Refresh list")).expandX().widget();
+        refresh.action = () -> {
+            countLabel.set(packetCountText());
+            rebuildPacketTable(theme, table);
+        };
+
+        return view;
     }
 
     @Override
@@ -199,10 +233,10 @@ public class PacketReplay extends Module {
 
         while (replayIndex < recordedPackets.size()) {
             RecordedPacket entry = recordedPackets.get(replayIndex);
-            if (entry.timestamp > elapsed) break;
+            if (entry.getTimestamp() > elapsed) break;
 
-            if (entry.movement != null) sendMovement(entry.movement);
-            else mc.getNetworkHandler().sendPacket(entry.packet);
+            if (entry.isMovement()) sendMovement(entry.getMovement());
+            else mc.getNetworkHandler().sendPacket(entry.getPacket());
 
             replayIndex++;
         }
@@ -216,42 +250,42 @@ public class PacketReplay extends Module {
     private void sendMovement(MovementData movement) {
         if (mc.getNetworkHandler() == null) return;
 
-        Vec3d absolutePos = recordedOrigin.add(movement.relativePos).add(replayOffset);
+        Vec3d absolutePos = recordedOrigin.add(movement.getRelativePos()).add(replayOffset);
         Packet<?> packet;
 
-        if (movement.hasPosition && movement.hasRotation) {
+        if (movement.hasPosition() && movement.hasRotation()) {
             packet = new PlayerMoveC2SPacket.Full(
                 absolutePos.x,
                 absolutePos.y,
                 absolutePos.z,
-                movement.yaw,
-                movement.pitch,
-                movement.onGround,
-                movement.horizontalCollision
+                movement.getYaw(),
+                movement.getPitch(),
+                movement.isOnGround(),
+                movement.hasHorizontalCollision()
             );
-        } else if (movement.hasPosition) {
+        } else if (movement.hasPosition()) {
             packet = new PlayerMoveC2SPacket.PositionAndOnGround(
                 absolutePos.x,
                 absolutePos.y,
                 absolutePos.z,
-                movement.onGround,
-                movement.horizontalCollision
+                movement.isOnGround(),
+                movement.hasHorizontalCollision()
             );
-        } else if (movement.hasRotation) {
+        } else if (movement.hasRotation()) {
             packet = new PlayerMoveC2SPacket.LookAndOnGround(
-                movement.yaw,
-                movement.pitch,
-                movement.onGround,
-                movement.horizontalCollision
+                movement.getYaw(),
+                movement.getPitch(),
+                movement.isOnGround(),
+                movement.hasHorizontalCollision()
             );
         } else {
             packet = new PlayerMoveC2SPacket.OnGroundOnly(
-                movement.onGround,
-                movement.horizontalCollision
+                movement.isOnGround(),
+                movement.hasHorizontalCollision()
             );
         }
 
-        if (movement.hasPosition) serverPos = absolutePos;
+        if (movement.hasPosition()) serverPos = absolutePos;
 
         mc.getNetworkHandler().sendPacket(packet);
     }
@@ -267,6 +301,105 @@ public class PacketReplay extends Module {
         );
 
         event.renderer.box(box, Color.RED, Color.RED, ShapeMode.Lines, 0);
+    }
+
+    private void rebuildPacketTable(GuiTheme theme, WTable table) {
+        table.clear();
+
+        if (recordedPackets.isEmpty()) {
+            table.add(theme.label("No recorded packets."));
+            table.row();
+            return;
+        }
+
+        table.add(theme.label("#"));
+        table.add(theme.label("Timestamp"));
+        table.add(theme.label("Type")).expandCellX();
+        table.add(theme.label("Position")).expandCellX();
+        table.row();
+
+        for (int i = 0; i < recordedPackets.size(); i++) {
+            RecordedPacket entry = recordedPackets.get(i);
+
+            table.add(theme.label(Integer.toString(i + 1)));
+            table.add(theme.label(String.format(Locale.US, "%d ms", entry.getTimestamp())));
+
+            if (entry.isMovement()) {
+                MovementData movement = entry.getMovement();
+                table.add(theme.label(movement.hasPosition()
+                    ? "Movement"
+                    : "Movement (no position)")).expandCellX();
+
+                if (movement.hasPosition()) {
+                    table.add(createMovementEditor(theme, movement)).expandX();
+                } else {
+                    table.add(theme.label("Not editable")).expandCellX();
+                }
+            } else if (entry.getPacket() != null) {
+                table.add(theme.label(entry.getPacket().getClass().getSimpleName())).expandCellX();
+                table.add(theme.label("N/A")).expandCellX();
+            } else {
+                table.add(theme.label("Unknown")).expandCellX();
+                table.add(theme.label("N/A")).expandCellX();
+            }
+
+            table.row();
+        }
+    }
+
+    private WWidget createMovementEditor(GuiTheme theme, MovementData movement) {
+        WVerticalList list = theme.verticalList();
+        list.spacing = 2;
+
+        list.add(createAxisRow(theme, movement, Direction.Axis.X)).expandX();
+        list.add(createAxisRow(theme, movement, Direction.Axis.Y)).expandX();
+        list.add(createAxisRow(theme, movement, Direction.Axis.Z)).expandX();
+
+        return list;
+    }
+
+    private WWidget createAxisRow(GuiTheme theme, MovementData movement, Direction.Axis axis) {
+        WHorizontalList row = theme.horizontalList();
+        row.spacing = 4;
+
+        row.add(theme.label(axis.name() + ":")).padRight(4).widget();
+
+        WMinus minus = row.add(theme.minus()).widget();
+        WLabel value = row.add(theme.label(formatCoordinate(getAxisAbsoluteValue(movement, axis)))).padHorizontal(4).widget();
+        WPlus plus = row.add(theme.plus()).widget();
+
+        minus.action = () -> adjustMovementAxis(movement, axis, -POSITION_INCREMENT, value);
+        plus.action = () -> adjustMovementAxis(movement, axis, POSITION_INCREMENT, value);
+
+        return row;
+    }
+
+    private void adjustMovementAxis(MovementData movement, Direction.Axis axis, double delta, WLabel valueLabel) {
+        movement.adjustPosition(
+            axis == Direction.Axis.X ? delta : 0,
+            axis == Direction.Axis.Y ? delta : 0,
+            axis == Direction.Axis.Z ? delta : 0
+        );
+
+        valueLabel.set(formatCoordinate(getAxisAbsoluteValue(movement, axis)));
+    }
+
+    private double getAxisAbsoluteValue(MovementData movement, Direction.Axis axis) {
+        Vec3d relative = movement.getRelativePos();
+
+        return switch (axis) {
+            case X -> recordedOrigin.x + relative.x;
+            case Y -> recordedOrigin.y + relative.y;
+            case Z -> recordedOrigin.z + relative.z;
+        };
+    }
+
+    private String formatCoordinate(double value) {
+        return String.format(Locale.US, "%.3f", value);
+    }
+
+    private String packetCountText() {
+        return String.format(Locale.US, "Recorded packets: %d", recordedPackets.size());
     }
 
     private static class RecordedPacket {
@@ -287,10 +420,26 @@ public class PacketReplay extends Module {
         public static RecordedPacket forMovement(long timestamp, MovementData movement) {
             return new RecordedPacket(timestamp, null, movement);
         }
+
+        public long getTimestamp() {
+            return timestamp;
+        }
+
+        public Packet<?> getPacket() {
+            return packet;
+        }
+
+        public MovementData getMovement() {
+            return movement;
+        }
+
+        public boolean isMovement() {
+            return movement != null;
+        }
     }
 
     private static class MovementData {
-        private final Vec3d relativePos;
+        private Vec3d relativePos;
         private final boolean hasPosition;
         private final boolean hasRotation;
         private final float yaw;
@@ -306,6 +455,39 @@ public class PacketReplay extends Module {
             this.pitch = pitch;
             this.onGround = onGround;
             this.horizontalCollision = horizontalCollision;
+        }
+
+        public Vec3d getRelativePos() {
+            return relativePos;
+        }
+
+        public boolean hasPosition() {
+            return hasPosition;
+        }
+
+        public boolean hasRotation() {
+            return hasRotation;
+        }
+
+        public float getYaw() {
+            return yaw;
+        }
+
+        public float getPitch() {
+            return pitch;
+        }
+
+        public boolean isOnGround() {
+            return onGround;
+        }
+
+        public boolean hasHorizontalCollision() {
+            return horizontalCollision;
+        }
+
+        public void adjustPosition(double x, double y, double z) {
+            if (!hasPosition) return;
+            relativePos = relativePos.add(x, y, z);
         }
     }
 
