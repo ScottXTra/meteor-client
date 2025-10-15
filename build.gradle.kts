@@ -194,34 +194,6 @@ tasks {
         options.compilerArgs.add("-Xlint:unchecked")
     }
 
-    shadowJar {
-        configurations = listOf(project.configurations.shadow.get())
-
-        inputs.property("archivesName", project.base.archivesName.get())
-
-        from("LICENSE") {
-            rename { "${it}_${inputs.properties["archivesName"]}" }
-        }
-
-        dependencies {
-            exclude {
-                it.moduleGroup == "org.slf4j"
-            }
-        }
-    }
-
-    remapJar {
-        dependsOn(shadowJar)
-        inputFile.set(shadowJar.get().archiveFile)
-    }
-
-    val copyJarToMods by registering(Copy::class) {
-        dependsOn(remapJar)
-        from(remapJar.flatMap { it.archiveFile })
-        into("C:/Users/scott/AppData/Roaming/.minecraft/mods")
-        onlyIf { System.getProperty("os.name").startsWith("Windows") }
-    }
-
     javadoc {
         with(options as StandardJavadocDocletOptions) {
             addStringOption("Xdoclint:none", "-quiet")
@@ -234,7 +206,7 @@ tasks {
         if (System.getenv("CI")?.toBoolean() == true) {
             dependsOn("javadocJar")
         }
-        finalizedBy(copyJarToMods)
+        
     }
 }
 
