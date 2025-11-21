@@ -100,6 +100,7 @@ dependencies {
     jij("io.netty:netty-handler-proxy:${properties["netty_version"] as String}") { isTransitive = false }
     jij("io.netty:netty-codec-socks:${properties["netty_version"] as String}") { isTransitive = false }
     jij("de.florianmichael:WaybackAuthLib:${properties["waybackauthlib_version"] as String}")
+    jij("org.python:jython-standalone:${properties["jython_version"] as String}")
 }
 
 // Handle transitive dependencies for jar-in-jar
