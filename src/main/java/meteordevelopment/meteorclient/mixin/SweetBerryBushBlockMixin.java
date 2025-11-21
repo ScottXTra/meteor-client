@@ -22,8 +22,10 @@ import static meteordevelopment.meteorclient.MeteorClient.mc;
 public abstract class SweetBerryBushBlockMixin {
     @Dynamic("Explicit 1.21.9 Support")
     @Inject(method = {
-        "onEntityCollision", // 1.21.10
+        "onEntityCollision", // 1.21.10 yarn (named)
+        "onEntityCollision(Lnet/minecraft/block/BlockState;Lnet/minecraft/world/World;Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/entity/Entity;Lnet/minecraft/entity/EntityCollisionHandler;Z)V", // 1.21.10 intermediary descriptor
         "onEntityCollision(Lnet/minecraft/block/BlockState;Lnet/minecraft/world/World;Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/entity/Entity;Lnet/minecraft/entity/EntityCollisionHandler;)V", // 1.21.9 yarn
+        "method_9548(Lnet/minecraft/class_2680;Lnet/minecraft/class_1937;Lnet/minecraft/class_2338;Lnet/minecraft/class_1297;Lnet/minecraft/class_10774;Z)V", // 1.21.10 intermediary
         "method_9548(Lnet/minecraft/class_2680;Lnet/minecraft/class_1937;Lnet/minecraft/class_2338;Lnet/minecraft/class_1297;Lnet/minecraft/class_10774;)V" // 1.21.9 intermediary
     }, at = @At("HEAD"), cancellable = true)
     private void onEntityCollision(CallbackInfo ci, @Local(argsOnly = true) Entity entity) {

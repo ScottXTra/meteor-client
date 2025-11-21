@@ -64,7 +64,7 @@ public class EndpointWalk extends Module {
         x2 = x - length.get();
         toFirst = true;
         spoofing = false;
-        serverPos = mc.player.getPos();
+        serverPos = mc.player.getTrackedPosition().getPos();
     }
 
     @Override
@@ -97,7 +97,7 @@ public class EndpointWalk extends Module {
             spoofing = false;
         }
 
-        if (!spoofing) serverPos = mc.player.getPos();
+        if (!spoofing) serverPos = mc.player.getTrackedPosition().getPos();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST + 50)

@@ -261,12 +261,12 @@ public class ActivityTrainer extends Module {
             if (waitTicks <= 0) {
                 phase = EpisodePhase.RUNNING;
                 runTicks = 0;
-                lastDistance = mc.player.getPos().distanceTo(goalVec);
+                lastDistance = mc.player.getTrackedPosition().getPos().distanceTo(goalVec);
             }
             return;
         }
 
-        Vec3d pos = mc.player.getPos();
+        Vec3d pos = mc.player.getTrackedPosition().getPos();
         Vec3d vel = mc.player.getVelocity();
 
         runTicks++;

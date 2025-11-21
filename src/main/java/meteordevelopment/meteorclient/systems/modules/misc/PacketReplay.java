@@ -137,7 +137,7 @@ public class PacketReplay extends Module {
 
         recordedPackets.clear();
         recordStartTime = System.currentTimeMillis();
-        recordedOrigin = mc.player.getPos();
+        recordedOrigin = mc.player.getTrackedPosition().getPos();
         recordServerPos = recordedOrigin;
         recordYaw = mc.player.getYaw();
         recordPitch = mc.player.getPitch();
@@ -164,7 +164,7 @@ public class PacketReplay extends Module {
 
         replayStartTime = System.currentTimeMillis();
         replayIndex = 0;
-        Vec3d currentPos = mc.player.getPos();
+        Vec3d currentPos = mc.player.getTrackedPosition().getPos();
         replayOffset = new Vec3d(
             currentPos.x - recordedOrigin.x,
             currentPos.y - recordedOrigin.y,

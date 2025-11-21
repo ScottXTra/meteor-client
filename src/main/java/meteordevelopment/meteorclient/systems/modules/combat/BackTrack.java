@@ -11,7 +11,7 @@ import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.player.PlayerPosition;
+import net.minecraft.entity.EntityPosition;
 import net.minecraft.network.packet.Packet;
 import net.minecraft.network.listener.ClientPlayPacketListener;
 import net.minecraft.network.packet.s2c.play.EntityPositionS2CPacket;
@@ -86,7 +86,7 @@ public class BackTrack extends Module {
             Entity entity = s2c.getEntity(mc.world);
             if (!shouldTrack(entity)) return;
 
-            Vec3d pos = realPositions.getOrDefault(entity.getId(), entity.getPos());
+            Vec3d pos = realPositions.getOrDefault(entity.getId(), entity.getTrackedPosition().getPos());
             pos = pos.add(s2c.getDeltaX() / 4096.0, s2c.getDeltaY() / 4096.0, s2c.getDeltaZ() / 4096.0);
             realPositions.put(entity.getId(), pos);
 
@@ -96,7 +96,7 @@ public class BackTrack extends Module {
             Entity entity = mc.world.getEntityById(p.entityId());
             if (!shouldTrack(entity)) return;
 
-            PlayerPosition applied = PlayerPosition.apply(PlayerPosition.fromEntity(entity), p.change(), p.relatives());
+            EntityPosition applied = EntityPosition.apply(EntityPosition.fromEntity(entity), p.change(), p.relatives());
             realPositions.put(entity.getId(), applied.position());
 
             packets.add(new DelayedPacket(packet, entity.getId(), System.currentTimeMillis() + randomDelay()));

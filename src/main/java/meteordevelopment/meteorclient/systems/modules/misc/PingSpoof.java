@@ -55,7 +55,7 @@ public class PingSpoof extends Module {
 
     @Override
     public void onActivate() {
-        if (mc.player != null) serverPos = mc.player.getPos();
+        if (mc.player != null) serverPos = mc.player.getTrackedPosition().getPos();
     }
 
     @Override
