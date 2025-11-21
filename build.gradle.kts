@@ -3,6 +3,8 @@ plugins {
     id("maven-publish")
 }
 
+import net.fabricmc.loom.task.RemapJarTask
+
 base {
     archivesName = properties["archives_base_name"] as String
     group = properties["maven_group"] as String
@@ -101,6 +103,16 @@ dependencies {
     jij("io.netty:netty-codec-socks:${properties["netty_version"] as String}") { isTransitive = false }
     jij("de.florianmichael:WaybackAuthLib:${properties["waybackauthlib_version"] as String}")
     jij("org.python:jython-standalone:${properties["jython_version"] as String}")
+}
+
+val minecraftModsDir = file("C:/Users/scott/AppData/Roaming/.minecraft/mods")
+
+val remapJarTask = tasks.named<RemapJarTask>("remapJar")
+
+val copyJarToMinecraftMods by tasks.registering(Copy::class) {
+    dependsOn(remapJarTask)
+    from(remapJarTask.flatMap { it.archiveFile })
+    into(minecraftModsDir)
 }
 
 // Handle transitive dependencies for jar-in-jar
@@ -207,7 +219,8 @@ tasks {
         if (System.getenv("CI")?.toBoolean() == true) {
             dependsOn("javadocJar")
         }
-        
+
+        finalizedBy(copyJarToMinecraftMods)
     }
 }
 
